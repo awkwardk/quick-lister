@@ -1,0 +1,12 @@
+{
+  "name": "quick-lister",
+  "version": "1.0.0",
+  "description": "Personal eBay listing tool",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
