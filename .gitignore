@@ -1,0 +1,5 @@
+node_modules/
+data/
+quick-lister-data/
+*.log
+.env
