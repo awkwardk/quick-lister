@@ -51,7 +51,6 @@ body{display:flex;flex-direction:column;}
 .scroll-content{flex:1;overflow-y:auto;padding:18px 20px 32px;}
 .section-title{font-family:var(--display);font-size:1.3rem;letter-spacing:0.04em;color:var(--text);margin:18px 0 8px;}
 .section-title:first-child{margin-top:0;}
-.section-title .opt{font-family:var(--body);font-size:0.7rem;font-weight:400;color:var(--muted);letter-spacing:0;text-transform:none;}
 .btn{width:100%;padding:18px;border:none;border-radius:8px;font-family:var(--display);font-size:1.3rem;letter-spacing:0.06em;cursor:pointer;transition:all 0.15s;}
 .btn-primary{background:var(--accent);color:#000;}.btn-primary:active{background:#c8df00;}
 .btn-primary:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
@@ -63,11 +62,6 @@ body{display:flex;flex-direction:column;}
 .photo-thumb-wrap{position:relative;width:64px;height:64px;}
 .photo-thumb-wrap img{width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--border);}
 .photo-thumb-wrap .rm{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:var(--red);color:#fff;font-size:12px;line-height:20px;text-align:center;cursor:pointer;font-weight:bold;}
-.grade-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;}
-.grade-pill{padding:12px 4px;border:2px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;text-align:center;font-family:var(--display);font-size:1.5rem;color:var(--text);}
-.grade-pill span{display:block;font-family:var(--body);font-size:0.6rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.03em;margin-top:2px;}
-.grade-pill.selected{border-color:var(--accent);background:rgba(232,255,0,0.06);color:var(--accent);}
-.grade-pill.selected span{color:var(--accent);}
 .text-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--text);font-family:var(--body);font-size:1rem;line-height:1.5;outline:none;-webkit-appearance:none;}
 .text-input:focus{border-color:var(--accent);}
 .text-input::placeholder{color:var(--muted);}
@@ -99,23 +93,12 @@ body{display:flex;flex-direction:column;}
   </label>
   <input type="file" id="galleryInput" accept="image/*" multiple onchange="addGalleryPhotos(this)" style="display:none;">
 
-  <div class="section-title">Condition Grade</div>
-  <div class="grade-row">
-    <button type="button" class="grade-pill" data-grade="A" onclick="selectGrade('A')">A<span>Like New</span></button>
-    <button type="button" class="grade-pill" data-grade="B" onclick="selectGrade('B')">B<span>Good &#9733;</span></button>
-    <button type="button" class="grade-pill" data-grade="C" onclick="selectGrade('C')">C<span>Heavy Wear</span></button>
-    <button type="button" class="grade-pill" data-grade="D" onclick="selectGrade('D')">D<span>Parts</span></button>
-  </div>
-
-  <div class="section-title">Brand &amp; Model <span class="opt">(optional)</span></div>
-  <input type="text" class="text-input" id="brandModelInput" placeholder="e.g. Dell D3100 docking station, Cisco SG110-16 switch">
-
-  <div class="section-title">Notes</div>
+  <div class="section-title">Spoken / Written Notes</div>
   <div class="voice-row">
     <button type="button" class="mic-btn" id="micBtn" onclick="toggleRecording()">&#127908;</button>
-    <div class="voice-status" id="voiceStatus">Tap mic to dictate notes</div>
+    <div class="voice-status" id="voiceStatus">Tap mic to speak item, brand, model &amp; condition</div>
   </div>
-  <textarea class="text-input notes-area" id="notesInput" placeholder="what works, what doesn't, what's included..."></textarea>
+  <textarea class="text-input notes-area" id="notesInput" placeholder="e.g. Dell D3100 docking station, works great, light scuffs on bottom, includes cables"></textarea>
 
   <div class="submit-wrap">
     <button type="button" class="btn btn-primary" id="submitBtn" onclick="submitItem()">Generate Listing</button>
@@ -126,7 +109,6 @@ body{display:flex;flex-direction:column;}
 
 <script>
 var photoB64s=[];
-var currentGrade='B';
 var savedCount=0;
 var sessionCount=0;
 var bgQueue=0;
@@ -137,11 +119,6 @@ var audioChunks=[];
 var recording=false;
 var recTimer=null;
 var recSeconds=0;
-
-function selectGrade(g){
-  currentGrade=g;
-  document.querySelectorAll('.grade-pill').forEach(function(b){b.classList.toggle('selected',b.getAttribute('data-grade')===g);});
-}
 
 function renderThumbs(){
   var wrap=document.getElementById('photoThumbs');
@@ -239,7 +216,7 @@ function sendAudioForTranscription(blob){
     if(d&&d.success&&d.transcript){
       var ta=document.getElementById('notesInput');
       ta.value=(ta.value.trim()?ta.value.trim()+'\\n':'')+d.transcript.trim();
-      document.getElementById('voiceStatus').textContent='Tap mic to dictate notes';
+      document.getElementById('voiceStatus').textContent='Tap mic to speak item, brand, model & condition';
     }else{
       document.getElementById('voiceStatus').textContent='Could not transcribe \\u2014 type notes manually';
     }
@@ -264,10 +241,8 @@ function flashQueued(){
 function resetForm(){
   photoB64s=[];
   renderThumbs();
-  selectGrade('B');
   document.getElementById('notesInput').value='';
-  document.getElementById('brandModelInput').value='';
-  document.getElementById('voiceStatus').textContent='Tap mic to dictate notes';
+  document.getElementById('voiceStatus').textContent='Tap mic to speak item, brand, model & condition';
 }
 
 function submitItem(){
@@ -275,9 +250,7 @@ function submitItem(){
   if(recording)stopRecording();
   var itemId='item_'+Date.now();
   var payload={
-    grade:currentGrade,
     notes:document.getElementById('notesInput').value.trim(),
-    brand_model:document.getElementById('brandModelInput').value.trim(),
     photos:photoB64s.slice(),
     itemId:itemId
   };
@@ -298,7 +271,6 @@ function submitItem(){
 }
 
 window.addEventListener('load',function(){
-  selectGrade('B');
   fetch('/api/listing-count').then(function(r){return r.json();}).then(function(d){
     savedCount=d.count||0;
     updateStatus();
@@ -474,35 +446,62 @@ function runGeneration(itemId,photos,grade,notes,brandModel,tag){
   try{
     tag=tag||'UPLOAD';
     var doneWord=(tag==='REGEN')?'regenerated':'generated';
-    var gradeName={A:'Like New / Open Box',B:'Good - Normal Used',C:'Fair - Heavy Wear',D:'Parts/Untested'}[grade]||'Used';
+    var gradeNames={A:'Like New / Open Box',B:'Good - Normal Used',C:'Fair - Heavy Wear',D:'Parts/Untested'};
+    var gradeProvided=(grade&&gradeNames[grade])?grade:'';
     var bm=(brandModel&&String(brandModel).trim())?String(brandModel).trim():'';
+    var opNotes=(notes&&String(notes).trim())?String(notes).trim():'';
+
+    // The operator's spoken/written notes are the ground truth for item identity when present.
+    // Brand/model (desktop-only field) is a fallback identifier when no notes were given.
     var visionText='Identify this item precisely. Read any visible model numbers, serial numbers, or labels. Note what is included and any condition issues. Return ONLY a JSON object: item_name, brand, model, serial_number, category, condition_notes, includes.';
-    if(bm){visionText='The seller identifies this item as: '+bm+'\nUse this as your primary identifier. Confirm from the photos and add any additional details visible.\n'+visionText;}
+    if(opNotes){
+      visionText='The operator explicitly describes this item as: \''+opNotes+'\'.\nYou MUST treat this operator description as the ground truth for brand, model, and condition. Use the photos to verify details, read exact serial numbers, and check for physical condition issues, but DO NOT override the operator\'s stated item identity.\n'+visionText;
+    }else if(bm){
+      visionText='The seller identifies this item as: '+bm+'\nUse this as your primary identifier. Confirm from the photos and add any additional details visible.\n'+visionText;
+    }
+
     callAI({system:'You are an expert electronics appraiser. Identify the item precisely from these photos. Return ONLY a JSON object, no markdown.',text:visionText,images:(photos||[]).slice(0,5),maxTokens:400,useSearch:false},function(err,txt1){
       try{
         if(err){console.log('['+tag+'] itemId '+itemId+' failed: vision step -',err.message);updateListingRecord(itemId,{status:'failed',error:'Vision step failed'});return;}
         var vd=extractJSON(txt1)||{item_name:'Unknown item'};
         var itemName=bm?bm:(vd.item_name||'Unknown item');
-        var pricingSystem=[
+
+        var pricingSystemLines=[
           'You are an experienced eBay seller writing a listing for a personal resale account.',
           'Search eBay completed/sold listings for accurate current pricing.',
           'Pricing: list just below mid-range of recent comps.',
           'Write honest, specific, confident copy. No overselling or underselling.',
-          'Clean up raw seller notes into professional copy regardless of format.',
+          'Clean up raw operator notes into professional copy regardless of format.',
           'No pricing context in buyer-facing description.',
           'Include serial number when provided.',
-          'Grade: A=Like New, B=Good Normal Used, C=Fair Heavy Wear, D=Parts/Untested',
-          'Return ONLY this JSON no markdown:',
-          '{"title":"under 80 chars","condition_box":"2-3 sentences","description_html":"full HTML with specs table","suggested_price":45,"accept_price":36,"decline_price":28,"price_note":"internal context"}'
-        ].join('\n');
-        var pricingText='Item: '+itemName+'\nGrade: '+grade+' ('+gradeName+')\nSerial: '+(vd.serial_number||'Not visible')+'\nIncludes: '+(vd.includes||'See photos')+'\nCondition: '+(vd.condition_notes||'See photos')+'\nNotes: '+(notes||'None')+'\n\nSearch eBay sold listings and generate listing JSON.';
+          'The title, brand, model, and condition box must strictly reflect what the operator stated in their notes — verify against the photos but never contradict the operator\'s stated item identity.'
+        ];
+        var jsonShape;
+        if(gradeProvided){
+          pricingSystemLines.push('Grade: A=Like New, B=Good Normal Used, C=Fair Heavy Wear, D=Parts/Untested');
+          jsonShape='{"title":"under 80 chars","condition_box":"2-3 sentences","description_html":"full HTML with specs table","suggested_price":45,"accept_price":36,"decline_price":28,"price_note":"internal context"}';
+        }else{
+          pricingSystemLines.push('No condition grade was provided by the operator. Deduce it yourself from the operator notes and the visible photo condition: A=Like New/Open Box, B=Good-Normal Used, C=Fair-Heavy Wear, D=Parts/Untested. Return your choice as "condition_grade" (exactly one letter: A, B, C, or D) in the JSON.');
+          jsonShape='{"title":"under 80 chars","condition_box":"2-3 sentences","description_html":"full HTML with specs table","condition_grade":"A","suggested_price":45,"accept_price":36,"decline_price":28,"price_note":"internal context"}';
+        }
+        pricingSystemLines.push('Return ONLY this JSON no markdown:');
+        pricingSystemLines.push(jsonShape);
+        var pricingSystem=pricingSystemLines.join('\n');
+
+        var gradeLine=gradeProvided?('Grade: '+gradeProvided+' ('+gradeNames[gradeProvided]+')'):'Grade: Not provided — deduce from operator notes and photo condition.';
+        var pricingText='Item: '+itemName+'\n'+gradeLine+'\nSerial: '+(vd.serial_number||'Not visible')+'\nIncludes: '+(vd.includes||'See photos')+'\nCondition: '+(vd.condition_notes||'See photos')+'\nOperator notes: '+(opNotes||'None')+'\n\nSearch eBay sold listings and generate listing JSON.';
         callAI({system:pricingSystem,text:pricingText,images:[],maxTokens:1500,useSearch:true},function(err2,txt2){
           try{
             if(err2){console.log('['+tag+'] itemId '+itemId+' failed: pricing step -',err2.message);updateListingRecord(itemId,{status:'failed',error:'Generation failed'});return;}
             var result=extractJSON(txt2);
             if(!result||!result.title){console.log('['+tag+'] itemId '+itemId+' failed: could not parse listing');updateListingRecord(itemId,{status:'failed',error:'Could not parse listing'});return;}
-            updateListingRecord(itemId,{title:result.title,condition_box:(result.condition_box!=null?result.condition_box:'See photos.'),description_html:(result.description_html!=null?result.description_html:'<p>'+itemName+'</p>'),suggested_price:(result.suggested_price!=null?result.suggested_price:0),accept_price:(result.accept_price!=null?result.accept_price:0),decline_price:(result.decline_price!=null?result.decline_price:0),price_note:(result.price_note!=null?result.price_note:''),status:'complete',error:null});
-            console.log('['+tag+'] itemId '+itemId+' '+doneWord+' successfully');
+            var finalGrade=gradeProvided;
+            if(!finalGrade){
+              var deduced=(result.condition_grade||'').toString().trim().toUpperCase().charAt(0);
+              finalGrade=gradeNames[deduced]?deduced:'B';
+            }
+            updateListingRecord(itemId,{title:result.title,condition_box:(result.condition_box!=null?result.condition_box:'See photos.'),description_html:(result.description_html!=null?result.description_html:'<p>'+itemName+'</p>'),suggested_price:(result.suggested_price!=null?result.suggested_price:0),accept_price:(result.accept_price!=null?result.accept_price:0),decline_price:(result.decline_price!=null?result.decline_price:0),price_note:(result.price_note!=null?result.price_note:''),grade:finalGrade,status:'complete',error:null});
+            console.log('['+tag+'] itemId '+itemId+' '+doneWord+' successfully (grade '+finalGrade+')');
           }catch(e){console.log('['+tag+'] itemId '+itemId+' failed:',e.message);updateListingRecord(itemId,{status:'failed',error:'Server error'});}
         });
       }catch(e){console.log('['+tag+'] itemId '+itemId+' failed:',e.message);updateListingRecord(itemId,{status:'failed',error:'Server error'});}
@@ -575,13 +574,15 @@ const server=http.createServer(function(req,res){
   }
 
   // Phone capture: BACKGROUND generation via the shared runGeneration() pipeline (same as upload/regen).
-  // Saves photos + a "processing" placeholder, returns 202 immediately. Optional brand_model is used as
-  // the primary identifier. Failures set status:'failed' so /listings shows the fail state + regenerate.
+  // Saves photos + a "processing" placeholder, returns 202 immediately. The phone UI has no grade
+  // picker anymore — an empty grade tells runGeneration to deduce the condition grade itself from
+  // the operator's notes and the photos. Failures set status:'failed' so /listings shows the fail
+  // state + regenerate.
   if(req.method==='POST'&&req.url==='/api/generate-listing'){
     parseBody(req,function(err,parsed){
       try{
         if(err||!parsed){sendJSON(res,400,{error:'Bad request'});return;}
-        var grade=parsed.grade||'B';
+        var grade=(parsed.grade&&String(parsed.grade).trim())?String(parsed.grade).trim():'';
         var notes=parsed.notes||'';
         var photos=parsed.photos||[];
         var brand_model=(parsed.brand_model&&String(parsed.brand_model).trim())?String(parsed.brand_model).trim():'';
@@ -608,7 +609,7 @@ const server=http.createServer(function(req,res){
         // Respond immediately — client does not wait
         sendJSON(res,202,{success:true,itemId:itemId,status:'processing'});
 
-        // Fill in the final record via the shared pipeline (brand/model as primary identifier)
+        // Fill in the final record via the shared pipeline (operator notes are the ground-truth identifier)
         runGeneration(itemId,photos,grade,notes,brand_model,'PHONE');
       }catch(e){console.log('[GENERATE] failed:',e.message);sendJSON(res,200,{success:false,error:'Server error'});}
     });
