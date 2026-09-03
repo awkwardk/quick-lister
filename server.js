@@ -5,12 +5,24 @@ const fs = require('fs');
 const path = require('path');
 
 const PORT = process.env.PORT || 3000;
-const API_KEY = process.env.ANTHROPIC_API_KEY || '';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const DATA_DIR = process.env.DATA_DIR || '/data/quick-lister-data';
 const LISTINGS_FILE = path.join(DATA_DIR, 'listings.json');
 const PHOTOS_DIR = path.join(DATA_DIR, 'photos');
 
-console.log('[STARTUP] API key found:', API_KEY.length > 0);
+function activeProvider(){
+  if(GEMINI_API_KEY)return 'gemini';
+  if(OPENROUTER_API_KEY)return 'openrouter';
+  if(ANTHROPIC_API_KEY)return 'claude';
+  return 'none';
+}
+
+console.log('[STARTUP] Gemini key found:', GEMINI_API_KEY.length > 0);
+console.log('[STARTUP] OpenRouter key found:', OPENROUTER_API_KEY.length > 0);
+console.log('[STARTUP] Anthropic key found:', ANTHROPIC_API_KEY.length > 0);
+console.log('[STARTUP] Active AI provider:', activeProvider());
 [DATA_DIR, PHOTOS_DIR].forEach(function(d){if(!fs.existsSync(d))fs.mkdirSync(d,{recursive:true});});
 
 function loadListings(){try{if(fs.existsSync(LISTINGS_FILE))return JSON.parse(fs.readFileSync(LISTINGS_FILE,'utf8'));}catch(e){}return[];}
@@ -18,26 +30,427 @@ function saveListings(l){try{fs.writeFileSync(LISTINGS_FILE,JSON.stringify(l));}
 function savePhotos(itemId,photos){var d=path.join(PHOTOS_DIR,itemId);if(!fs.existsSync(d))fs.mkdirSync(d,{recursive:true});photos.forEach(function(b64,i){try{fs.writeFileSync(path.join(d,'photo_'+(i+1)+'.jpg'),Buffer.from(b64,'base64'));}catch(e){};});}
 function isDuplicate(itemId){return loadListings().some(function(l){return l.itemId===itemId;});}
 
-const PHONE_HTML="<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, user-scalable=no\">\n<meta name=\"mobile-web-app-capable\" content=\"yes\">\n<meta name=\"apple-mobile-web-app-capable\" content=\"yes\">\n<meta name=\"theme-color\" content=\"#111111\">\n<title>Quick Lister</title>\n<link href=\"https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;600;700;900&family=DM+Mono:wght@400;500&display=swap\" rel=\"stylesheet\">\n<style>\n:root{--bg:#111;--surface:#1a1a1a;--surface2:#222;--border:#2c2c2c;--text:#f2f2f2;--muted:#666;--accent:#e8ff00;--green:#00e676;--red:#ff1744;--orange:#ff9f1c;--display:'Bebas Neue',sans-serif;--body:'Barlow',sans-serif;--mono:'DM Mono',monospace;}\n*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}\nhtml,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--body);color:var(--text);user-select:none;touch-action:manipulation;}\n.screen{position:fixed;inset:0;display:none;flex-direction:column;background:var(--bg);}.screen.active{display:flex;}\n.topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 20px 12px;background:var(--bg);border-bottom:1px solid var(--border);flex-shrink:0;gap:10px;}\n.topbar-brand{font-family:var(--display);font-size:1.3rem;letter-spacing:0.06em;color:var(--text);white-space:nowrap;}.topbar-brand span{color:var(--accent);}\n.topbar-right{font-family:var(--mono);font-size:0.6rem;letter-spacing:0.1em;color:var(--muted);text-transform:uppercase;text-align:right;}\n.back-btn{background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 12px;border-radius:6px;font-family:var(--mono);font-size:0.6rem;letter-spacing:0.08em;cursor:pointer;white-space:nowrap;flex-shrink:0;}\n.back-btn:active{background:var(--surface2);}\n.scroll-content{flex:1;overflow-y:auto;padding:20px;}\n.btn{width:100%;padding:18px;border:none;border-radius:8px;font-family:var(--display);font-size:1.3rem;letter-spacing:0.06em;cursor:pointer;transition:all 0.15s;margin-bottom:10px;}\n.btn-primary{background:var(--accent);color:#000;}.btn-primary:active{background:#c8df00;}\n.btn-primary:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}\n.btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border);}.btn-secondary:active{background:#2a2a2a;}\n.btn-skip{background:transparent;color:var(--muted);border:1px solid var(--border);font-size:1rem;padding:14px;}\n.section-title{font-family:var(--display);font-size:1.8rem;letter-spacing:0.04em;color:var(--text);margin-bottom:4px;}\n.section-sub{font-size:0.9rem;color:var(--muted);margin-bottom:16px;line-height:1.5;}\n.grade-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}\n.grade-btn{padding:20px 12px;border:2px solid var(--border);border-radius:10px;background:var(--surface);cursor:pointer;transition:all 0.15s;text-align:center;}\n.grade-btn:active{transform:scale(0.96);}\n.grade-btn.selected{border-color:var(--accent);background:rgba(232,255,0,0.06);}\n.grade-letter{font-family:var(--display);font-size:3rem;line-height:1;margin-bottom:4px;color:var(--text);}\n.grade-name{font-size:0.85rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;}\n.grade-desc{font-size:0.75rem;color:var(--muted);line-height:1.4;}\n.grade-btn.selected .grade-letter{color:var(--accent);}.grade-btn.selected .grade-name{color:var(--accent);}\n.notes-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;color:var(--text);font-family:var(--body);font-size:1rem;line-height:1.5;resize:none;outline:none;min-height:130px;-webkit-appearance:none;}\n.notes-input:focus{border-color:var(--accent);}\n.notes-input::placeholder{color:var(--muted);}\n.notes-hint{font-family:var(--mono);font-size:0.6rem;letter-spacing:0.08em;color:var(--muted);margin-top:8px;line-height:1.6;}\n.queued-banner{background:rgba(0,230,118,0.08);border:1px solid rgba(0,230,118,0.3);border-radius:8px;padding:12px 16px;margin-bottom:16px;}\n.queued-title{font-family:var(--display);font-size:1.1rem;color:var(--green);margin-bottom:4px;}\n.queued-sub{font-family:var(--mono);font-size:0.6rem;color:var(--muted);letter-spacing:0.08em;line-height:1.6;}\n.queue-count{display:inline-flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;margin-bottom:20px;font-family:var(--mono);font-size:0.65rem;color:var(--muted);}\n.queue-num{font-family:var(--display);font-size:1.4rem;color:var(--orange);line-height:1;}\n#photoScreen{display:none;flex-direction:column;}\n#photoScreen.active{display:flex;}\n#photoScreen .topbar{flex-shrink:0;}\n#camContainer{position:relative;background:#000;overflow:hidden;width:100%;aspect-ratio:1/1;max-height:calc(100vh - 140px);margin:0 auto;}\n#photoVideo{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;height:100%;object-fit:cover;}\n#camPrompt{position:absolute;bottom:60px;left:0;right:0;text-align:center;font-family:var(--mono);font-size:0.6rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--accent);pointer-events:none;}\n#camCount{position:absolute;top:12px;right:12px;background:rgba(0,0,0,0.65);border-radius:100px;padding:4px 12px;font-family:var(--mono);font-size:0.65rem;color:#fff;}\n#camThumbs{position:absolute;bottom:8px;left:12px;display:flex;gap:6px;}\n#camThumbs img{width:44px;height:33px;border-radius:5px;object-fit:cover;border:2px solid rgba(255,255,255,0.4);}\n#photoControls{display:flex;gap:10px;padding:10px 16px;background:var(--bg);flex-shrink:0;border-top:1px solid var(--border);}\n#photoControls button{flex:1;padding:14px;border:none;border-radius:8px;font-family:var(--display);font-size:1rem;letter-spacing:0.05em;cursor:pointer;}\n#shootBtn{background:var(--surface2);color:var(--text);border:2px solid var(--border)!important;display:flex;align-items:center;justify-content:center;gap:8px;}\n#shootBtn:active{background:#2a2a2a;}\n#shootBtn svg{width:18px;height:18px;}\n#doneBtn{background:var(--accent);color:#000;}\n#doneBtn:disabled{background:var(--border);color:var(--muted);}\n#skipBtn{background:transparent;color:var(--muted);border:1px solid var(--border)!important;font-size:0.9rem;max-width:80px;}\ncanvas{display:none;}\n</style>\n</head>\n<body>\n\n<!-- HOME -->\n<div class=\"screen active\" id=\"homeScreen\">\n  <div class=\"topbar\">\n    <div class=\"topbar-brand\">QUICK<span>&#183;</span>LISTER</div>\n    <div class=\"topbar-right\" id=\"homeCount\">0 items</div>\n  </div>\n  <div class=\"scroll-content\" style=\"display:flex;flex-direction:column;justify-content:center;min-height:calc(100vh - 56px);\">\n    <div style=\"margin-bottom:28px;\">\n      <div style=\"font-family:var(--display);font-size:3.2rem;color:var(--text);line-height:0.92;margin-bottom:10px;\">READY<br>TO LIST</div>\n      <div style=\"font-size:0.9rem;color:var(--muted);line-height:1.6;\">Grade, notes, photos \u2014 done.<br>Listings generate in background.<br>Open <strong style=\"color:var(--accent);\">quick-lister.onrender.com/listings</strong><br>on your computer when ready.</div>\n    </div>\n    <div class=\"queue-count\" id=\"queueBadge\" style=\"display:none;\">\n      <div class=\"queue-num\" id=\"queueNum\">0</div>\n      <div>generating in background</div>\n    </div>\n    <button class=\"btn btn-primary\" onclick=\"startItem()\">New Item</button>\n    <button class=\"btn btn-secondary\" onclick=\"checkCount()\">Check Saved Count</button>\n  </div>\n</div>\n\n<!-- GRADE -->\n<div class=\"screen\" id=\"gradeScreen\">\n  <div class=\"topbar\">\n    <div class=\"topbar-brand\">Grade</div>\n    <div class=\"topbar-right\" id=\"gradeNum\"></div>\n  </div>\n  <div class=\"scroll-content\">\n    <div class=\"section-title\">Condition Grade</div>\n    <div class=\"section-sub\">Pick the grade that matches what you see. When between two grades always choose the lower one.</div>\n    <div class=\"grade-grid\">\n      <div class=\"grade-btn\" id=\"gradeA\" onclick=\"selectGrade('A')\"><div class=\"grade-letter\">A</div><div class=\"grade-name\">Like New</div><div class=\"grade-desc\">Works perfectly. Looks almost new.</div></div>\n      <div class=\"grade-btn\" id=\"gradeB\" onclick=\"selectGrade('B')\"><div class=\"grade-letter\">B</div><div class=\"grade-name\">Good &#9733;</div><div class=\"grade-desc\">Works perfectly. Normal light wear.</div></div>\n      <div class=\"grade-btn\" id=\"gradeC\" onclick=\"selectGrade('C')\"><div class=\"grade-letter\">C</div><div class=\"grade-name\">Fair</div><div class=\"grade-desc\">Works. Heavy visible wear.</div></div>\n      <div class=\"grade-btn\" id=\"gradeD\" onclick=\"selectGrade('D')\"><div class=\"grade-letter\">D</div><div class=\"grade-name\">Parts</div><div class=\"grade-desc\">Does not work or untested.</div></div>\n    </div>\n    <button class=\"btn btn-primary\" id=\"gradeContinue\" onclick=\"goToNotes()\" disabled>Continue</button>\n    <button class=\"btn btn-skip\" onclick=\"goHome()\">Cancel</button>\n  </div>\n</div>\n\n<!-- NOTES -->\n<div class=\"screen\" id=\"notesScreen\">\n  <div class=\"topbar\">\n    <div class=\"topbar-brand\">Notes</div>\n    <div class=\"topbar-right\" id=\"notesGrade\" style=\"color:var(--accent);\"></div>\n    <button class=\"back-btn\" onclick=\"goToGrade()\">&#8592; Back</button>\n  </div>\n  <div class=\"scroll-content\">\n    <div class=\"section-title\">Quick Notes</div>\n    <div class=\"section-sub\">Write however you want \u2014 shorthand, fragments, all caps. AI cleans it up automatically.</div>\n    <label style=\"display:block;font-family:var(--mono);font-size:0.6rem;letter-spacing:0.08em;color:var(--muted);text-transform:uppercase;margin-bottom:6px;\">Brand &amp; Model (optional)</label>\n    <input type=\"text\" class=\"notes-input\" id=\"brandModelInput\" style=\"min-height:0;margin-bottom:16px;\" placeholder=\"e.g. Dell D3100 docking station, Cisco SG110-16 switch\">\n    <textarea class=\"notes-input\" id=\"notesInput\" placeholder=\"e.g. works great no remote dusty&#10;MISSING BATTERY COVER otherwise fine&#10;includes original box and cables\"></textarea>\n    <div class=\"notes-hint\">Type raw \u2014 AI handles grammar, caps, and tone.<br>Include: what works, what does not, what is included.</div>\n    <br>\n    <button class=\"btn btn-primary\" onclick=\"goToPhotos()\">Continue</button>\n    <button class=\"btn btn-skip\" onclick=\"goToPhotos()\">Skip \u2014 No Notes</button>\n  </div>\n</div>\n\n<!-- PHOTOS -->\n<div class=\"screen\" id=\"photoScreen\">\n  <div class=\"topbar\">\n    <div class=\"topbar-brand\">Photos</div>\n    <div class=\"topbar-right\" id=\"photoGrade\" style=\"color:var(--accent);\"></div>\n    <button class=\"back-btn\" onclick=\"goToNotes()\">&#8592; Back</button>\n  </div>\n  <div id=\"camContainer\">\n    <video id=\"photoVideo\" autoplay playsinline muted></video>\n    <div id=\"camPrompt\">Rotate to landscape for wider shot</div>\n    <div id=\"camCount\">0 photos</div>\n    <div id=\"camThumbs\"></div>\n  </div>\n  <div id=\"photoControls\">\n    <button id=\"shootBtn\" onclick=\"takePhoto()\">\n      <svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z\"/><circle cx=\"12\" cy=\"13\" r=\"4\"/></svg>\n      Take Photo\n    </button>\n    <button id=\"doneBtn\" onclick=\"queueAndNext()\" disabled>Done &#10003;</button>\n    <button id=\"skipBtn\" onclick=\"queueAndNext()\">Skip</button>\n  </div>\n  <div id=\"galleryPick\" style=\"padding:10px 16px 16px;background:var(--bg);flex-shrink:0;\"><div style=\"display:flex;align-items:center;gap:10px;margin-bottom:10px;color:var(--muted);font-family:var(--mono);font-size:0.6rem;letter-spacing:0.1em;\"><span style=\"flex:1;height:1px;background:var(--border);\"></span>or<span style=\"flex:1;height:1px;background:var(--border);\"></span></div><label for=\"galleryInput\" style=\"display:block;text-align:center;border:1px dashed var(--border);border-radius:8px;padding:14px;cursor:pointer;\"><div style=\"font-family:var(--display);font-size:1.1rem;letter-spacing:0.05em;color:var(--text);\">&#128193; Choose from Gallery</div><div style=\"font-family:var(--mono);font-size:0.6rem;color:var(--muted);letter-spacing:0.08em;margin-top:4px;\">Select existing photos from your device</div></label><input type=\"file\" id=\"galleryInput\" accept=\"image/*\" multiple onchange=\"addGalleryPhotos(this)\" style=\"display:none;\"></div><canvas id=\"photoCanvas\"></canvas>\n</div>\n\n<!-- QUEUED -->\n<div class=\"screen\" id=\"queuedScreen\">\n  <div class=\"topbar\">\n    <div class=\"topbar-brand\">QUICK<span>&#183;</span>LISTER</div>\n    <div class=\"topbar-right\" id=\"queuedCount\"></div>\n  </div>\n  <div class=\"scroll-content\" style=\"display:flex;flex-direction:column;justify-content:center;min-height:calc(100vh - 56px);\">\n    <div class=\"queued-banner\" style=\"margin-bottom:24px;\">\n      <div class=\"queued-title\">&#10003; Generating in background</div>\n      <div class=\"queued-sub\">Photos uploaded and listing is being created.<br>Open quick-lister.onrender.com/listings on<br>your computer when you are ready to list.</div>\n    </div>\n    <button class=\"btn btn-primary\" onclick=\"startItem()\">Next Item</button>\n    <button class=\"btn btn-secondary\" onclick=\"goHome()\">Back to Home</button>\n  </div>\n</div>\n\n<script>\nvar currentItem={};\nvar photoB64s=[];\nvar photoStream=null;\nvar sessionCount=0;\nvar bgQueue=0;\nvar wakeLock=null;\n\nfunction showScreen(id){\n  document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});\n  document.getElementById(id).classList.add('active');\n}\nfunction goHome(){stopCamera();releaseWakeLock();showScreen('homeScreen');}\nfunction goToGrade(){showScreen('gradeScreen');}\nfunction goToNotes(){document.getElementById('notesGrade').textContent='Grade '+currentItem.grade;showScreen('notesScreen');}\n\nfunction goToPhotos(){\n  currentItem.notes=document.getElementById('notesInput').value.trim();\n  currentItem.brandModel=document.getElementById('brandModelInput').value.trim();\n  document.getElementById('photoGrade').textContent='Grade '+currentItem.grade;\n  startCamera();\n  showScreen('photoScreen');\n}\n\nfunction checkCount(){\n  fetch('/api/listing-count').then(function(r){return r.json();}).then(function(d){\n    alert(d.count+' listing'+(d.count!==1?'s':'')+' saved. Open /listings on your computer.');\n  }).catch(function(){alert('Could not reach server.');});\n}\n\nfunction startItem(){\n  currentItem={grade:null,notes:'',brandModel:'',itemId:'item_'+Date.now()};\n  photoB64s=[];\n  document.querySelectorAll('.grade-btn').forEach(function(b){b.classList.remove('selected');});\n  document.getElementById('gradeContinue').disabled=true;\n  document.getElementById('notesInput').value='';\n  document.getElementById('brandModelInput').value='';\n  document.getElementById('camThumbs').innerHTML='';\n  document.getElementById('camCount').textContent='0 photos';\n  document.getElementById('doneBtn').disabled=true;\n  document.getElementById('gradeNum').textContent='Item '+(sessionCount+1);\n  showScreen('gradeScreen');\n}\n\nfunction selectGrade(g){\n  currentItem.grade=g;\n  document.querySelectorAll('.grade-btn').forEach(function(b){b.classList.remove('selected');});\n  document.getElementById('grade'+g).classList.add('selected');\n  document.getElementById('gradeContinue').disabled=false;\n}\n\nfunction startCamera(){\n  var video=document.getElementById('photoVideo');\n  if(photoStream)return;\n  navigator.mediaDevices.getUserMedia({\n    video:{facingMode:{ideal:'environment'},width:{ideal:1080},height:{ideal:1920}},audio:false\n  })\n  .then(function(stream){photoStream=stream;video.srcObject=stream;video.play();})\n  .catch(function(e){console.error('Camera error',e);});\n}\n\nfunction stopCamera(){if(photoStream){photoStream.getTracks().forEach(function(t){t.stop();});photoStream=null;}}\nfunction acquireWakeLock(){if('wakeLock' in navigator){navigator.wakeLock.request('screen').then(function(wl){wakeLock=wl;}).catch(function(){});}}\nfunction releaseWakeLock(){if(wakeLock){wakeLock.release().catch(function(){});wakeLock=null;}}\n\nfunction playShutter(){\n  try{\n    var ctx=new(window.AudioContext||window.webkitAudioContext)();\n    var buf=ctx.createBuffer(1,Math.floor(ctx.sampleRate*0.06),ctx.sampleRate);\n    var data=buf.getChannelData(0);\n    for(var i=0;i<data.length;i++){data[i]=(Math.random()*2-1)*Math.pow(1-i/data.length,2)*0.15;}\n    var src=ctx.createBufferSource();src.buffer=buf;\n    var gain=ctx.createGain();gain.gain.value=0.15;\n    src.connect(gain);gain.connect(ctx.destination);src.start();\n    setTimeout(function(){ctx.close();},300);\n  }catch(e){}\n}\n\nfunction takePhoto(){\n  var video=document.getElementById('photoVideo');\n  var canvas=document.getElementById('photoCanvas');\n  if(!video.videoWidth){alert('Camera not ready yet.');return;}\n  playShutter();\n\n  // Crop center square from video stream (1080x1080 from 1080x1920)\n  var vw=video.videoWidth;\n  var vh=video.videoHeight;\n  var size=Math.min(vw,vh); // square from smaller dimension\n  var srcX=Math.round((vw-size)/2);\n  var srcY=Math.round((vh-size)/2);\n  var outSize=Math.min(size,1080);\n\n  canvas.width=outSize;\n  canvas.height=outSize;\n  canvas.getContext('2d').drawImage(video,srcX,srcY,size,size,0,0,outSize,outSize);\n\n  var b64=canvas.toDataURL('image/jpeg',0.92).split(',')[1];\n  photoB64s.push(b64);\n  var img=document.createElement('img');\n  img.src='data:image/jpeg;base64,'+b64;\n  document.getElementById('camThumbs').appendChild(img);\n  document.getElementById('camCount').textContent=photoB64s.length+' photo'+(photoB64s.length!==1?'s':'');\n  document.getElementById('doneBtn').disabled=false;\n}\n\nfunction addGalleryPhotos(input){var files=input.files;if(!files||!files.length)return;var arr=[];for(var i=0;i<files.length;i++)arr.push(files[i]);arr.forEach(function(file){var fr=new FileReader();fr.onload=function(){var v=String(fr.result||'');var c=v.indexOf(',');var b64=c>=0?v.slice(c+1):v;photoB64s.push(b64);var img=document.createElement('img');img.src='data:image/jpeg;base64,'+b64;document.getElementById('camThumbs').appendChild(img);document.getElementById('camCount').textContent=photoB64s.length+' photo'+(photoB64s.length!==1?'s':'');document.getElementById('doneBtn').disabled=false;};fr.readAsDataURL(file);});input.value='';}function queueAndNext(){\n  stopCamera();\n  sessionCount++;\n  bgQueue++;\n  updateQueueBadge();\n  document.getElementById('queuedCount').textContent='Item '+sessionCount+' queued';\n  showScreen('queuedScreen');\n  acquireWakeLock();\n  fetch('/api/generate-listing',{\n    method:'POST',\n    headers:{'Content-Type':'application/json'},\n    body:JSON.stringify({grade:currentItem.grade,notes:currentItem.notes,brand_model:currentItem.brandModel,photos:photoB64s,itemId:currentItem.itemId})\n  })\n  .then(function(r){return r.json();})\n  .then(function(){bgQueue=Math.max(0,bgQueue-1);updateQueueBadge();releaseWakeLock();})\n  .catch(function(){bgQueue=Math.max(0,bgQueue-1);updateQueueBadge();releaseWakeLock();});\n}\n\nfunction updateQueueBadge(){\n  var badge=document.getElementById('queueBadge');\n  if(bgQueue>0){badge.style.display='flex';document.getElementById('queueNum').textContent=bgQueue;}\n  else{badge.style.display='none';}\n  document.getElementById('homeCount').textContent=sessionCount+' items';\n}\n\nwindow.addEventListener('load',function(){\n  fetch('/api/listing-count').then(function(r){return r.json();}).then(function(d){\n    if(d.count>0)document.getElementById('homeCount').textContent=d.count+' saved';\n  }).catch(function(){});\n});\n\ndocument.addEventListener('visibilitychange',function(){\n  if(document.visibilityState==='visible'&&bgQueue>0)acquireWakeLock();\n});\n</script>\n</body>\n</html>";
+const PHONE_HTML=`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#111111">
+<title>Quick Lister</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;600;700;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#111;--surface:#1a1a1a;--surface2:#222;--border:#2c2c2c;--text:#f2f2f2;--muted:#666;--accent:#e8ff00;--green:#00e676;--red:#ff1744;--orange:#ff9f1c;--display:'Bebas Neue',sans-serif;--body:'Barlow',sans-serif;--mono:'DM Mono',monospace;}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;background:var(--bg);font-family:var(--body);color:var(--text);touch-action:manipulation;}
+body{display:flex;flex-direction:column;}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 20px 12px;background:var(--bg);border-bottom:1px solid var(--border);flex-shrink:0;gap:10px;}
+.topbar-brand{font-family:var(--display);font-size:1.3rem;letter-spacing:0.06em;color:var(--text);white-space:nowrap;}.topbar-brand span{color:var(--accent);}
+.topbar-right{font-family:var(--mono);font-size:0.6rem;letter-spacing:0.08em;color:var(--muted);text-transform:uppercase;text-align:right;}
+.scroll-content{flex:1;overflow-y:auto;padding:18px 20px 32px;}
+.section-title{font-family:var(--display);font-size:1.3rem;letter-spacing:0.04em;color:var(--text);margin:18px 0 8px;}
+.section-title:first-child{margin-top:0;}
+.section-title .opt{font-family:var(--body);font-size:0.7rem;font-weight:400;color:var(--muted);letter-spacing:0;text-transform:none;}
+.btn{width:100%;padding:18px;border:none;border-radius:8px;font-family:var(--display);font-size:1.3rem;letter-spacing:0.06em;cursor:pointer;transition:all 0.15s;}
+.btn-primary{background:var(--accent);color:#000;}.btn-primary:active{background:#c8df00;}
+.btn-primary:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
+.gallery-btn{display:block;text-align:center;border:1px dashed var(--border);border-radius:8px;padding:16px;cursor:pointer;}
+.gallery-btn .gb-title{font-family:var(--display);font-size:1.1rem;letter-spacing:0.05em;color:var(--text);}
+.gallery-btn .gb-sub{font-family:var(--mono);font-size:0.6rem;color:var(--muted);letter-spacing:0.06em;margin-top:4px;}
+.photo-thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+.photo-thumbs:empty{display:none;}
+.photo-thumb-wrap{position:relative;width:64px;height:64px;}
+.photo-thumb-wrap img{width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--border);}
+.photo-thumb-wrap .rm{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:var(--red);color:#fff;font-size:12px;line-height:20px;text-align:center;cursor:pointer;font-weight:bold;}
+.grade-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;}
+.grade-pill{padding:12px 4px;border:2px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;text-align:center;font-family:var(--display);font-size:1.5rem;color:var(--text);}
+.grade-pill span{display:block;font-family:var(--body);font-size:0.6rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.03em;margin-top:2px;}
+.grade-pill.selected{border-color:var(--accent);background:rgba(232,255,0,0.06);color:var(--accent);}
+.grade-pill.selected span{color:var(--accent);}
+.text-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--text);font-family:var(--body);font-size:1rem;line-height:1.5;outline:none;-webkit-appearance:none;}
+.text-input:focus{border-color:var(--accent);}
+.text-input::placeholder{color:var(--muted);}
+.notes-area{resize:none;min-height:90px;margin-top:8px;}
+.voice-row{display:flex;align-items:center;gap:12px;}
+.mic-btn{flex-shrink:0;width:52px;height:52px;border-radius:50%;border:2px solid var(--border);background:var(--surface);color:var(--text);font-size:1.4rem;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.mic-btn.recording{border-color:var(--red);background:rgba(255,23,68,0.12);animation:pulse 1.1s infinite;}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,23,68,0.45);}70%{box-shadow:0 0 0 12px rgba(255,23,68,0);}100%{box-shadow:0 0 0 0 rgba(255,23,68,0);}}
+.voice-status{font-family:var(--mono);font-size:0.65rem;letter-spacing:0.05em;color:var(--muted);flex:1;}
+.submit-wrap{margin-top:22px;}
+.queued-flash{margin-top:10px;text-align:center;font-family:var(--mono);font-size:0.7rem;letter-spacing:0.06em;color:var(--green);opacity:0;transition:opacity 0.2s;}
+.queued-flash.show{opacity:1;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-brand">QUICK<span>&#183;</span>LISTER</div>
+  <div class="topbar-right" id="statusRight">0 saved</div>
+</div>
+
+<div class="scroll-content">
+
+  <div class="section-title">Photos</div>
+  <div class="photo-thumbs" id="photoThumbs"></div>
+  <label for="galleryInput" class="gallery-btn">
+    <div class="gb-title">&#128193; Choose from Gallery</div>
+    <div class="gb-sub">Select or take multiple photos at once</div>
+  </label>
+  <input type="file" id="galleryInput" accept="image/*" multiple onchange="addGalleryPhotos(this)" style="display:none;">
+
+  <div class="section-title">Condition Grade</div>
+  <div class="grade-row">
+    <button type="button" class="grade-pill" data-grade="A" onclick="selectGrade('A')">A<span>Like New</span></button>
+    <button type="button" class="grade-pill" data-grade="B" onclick="selectGrade('B')">B<span>Good &#9733;</span></button>
+    <button type="button" class="grade-pill" data-grade="C" onclick="selectGrade('C')">C<span>Heavy Wear</span></button>
+    <button type="button" class="grade-pill" data-grade="D" onclick="selectGrade('D')">D<span>Parts</span></button>
+  </div>
+
+  <div class="section-title">Brand &amp; Model <span class="opt">(optional)</span></div>
+  <input type="text" class="text-input" id="brandModelInput" placeholder="e.g. Dell D3100 docking station, Cisco SG110-16 switch">
+
+  <div class="section-title">Notes</div>
+  <div class="voice-row">
+    <button type="button" class="mic-btn" id="micBtn" onclick="toggleRecording()">&#127908;</button>
+    <div class="voice-status" id="voiceStatus">Tap mic to dictate notes</div>
+  </div>
+  <textarea class="text-input notes-area" id="notesInput" placeholder="what works, what doesn't, what's included..."></textarea>
+
+  <div class="submit-wrap">
+    <button type="button" class="btn btn-primary" id="submitBtn" onclick="submitItem()">Generate Listing</button>
+    <div class="queued-flash" id="queuedFlash">&#10003; Queued &#8212; generating in background</div>
+  </div>
+
+</div>
+
+<script>
+var photoB64s=[];
+var currentGrade='B';
+var savedCount=0;
+var sessionCount=0;
+var bgQueue=0;
+var wakeLock=null;
+
+var mediaRecorder=null;
+var audioChunks=[];
+var recording=false;
+var recTimer=null;
+var recSeconds=0;
+
+function selectGrade(g){
+  currentGrade=g;
+  document.querySelectorAll('.grade-pill').forEach(function(b){b.classList.toggle('selected',b.getAttribute('data-grade')===g);});
+}
+
+function renderThumbs(){
+  var wrap=document.getElementById('photoThumbs');
+  wrap.innerHTML='';
+  photoB64s.forEach(function(b64,idx){
+    var d=document.createElement('div');
+    d.className='photo-thumb-wrap';
+    var img=document.createElement('img');
+    img.src='data:image/jpeg;base64,'+b64;
+    var rm=document.createElement('div');
+    rm.className='rm';
+    rm.textContent='\\u00d7';
+    rm.onclick=function(){photoB64s.splice(idx,1);renderThumbs();};
+    d.appendChild(img);d.appendChild(rm);
+    wrap.appendChild(d);
+  });
+}
+
+function addGalleryPhotos(input){
+  var files=input.files;
+  if(!files||!files.length)return;
+  var arr=[];for(var i=0;i<files.length;i++)arr.push(files[i]);
+  arr.forEach(function(file){
+    var fr=new FileReader();
+    fr.onload=function(){
+      var v=String(fr.result||'');
+      var c=v.indexOf(',');
+      photoB64s.push(c>=0?v.slice(c+1):v);
+      renderThumbs();
+    };
+    fr.readAsDataURL(file);
+  });
+  input.value='';
+}
+
+function acquireWakeLock(){if('wakeLock' in navigator){navigator.wakeLock.request('screen').then(function(wl){wakeLock=wl;}).catch(function(){});}}
+function releaseWakeLock(){if(wakeLock){wakeLock.release().catch(function(){});wakeLock=null;}}
+
+function updateMicUI(){
+  var m=Math.floor(recSeconds/60), s=recSeconds%60;
+  document.getElementById('voiceStatus').textContent='Recording... '+m+':'+(s<10?'0':'')+s;
+}
+
+function toggleRecording(){
+  if(recording)stopRecording();else startRecording();
+}
+
+function startRecording(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia||typeof MediaRecorder==='undefined'){
+    document.getElementById('voiceStatus').textContent='Voice capture not supported \\u2014 type notes manually';
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}})
+  .then(function(stream){
+    var mimeType='';
+    if(window.MediaRecorder&&MediaRecorder.isTypeSupported){
+      if(MediaRecorder.isTypeSupported('audio/webm;codecs=opus'))mimeType='audio/webm;codecs=opus';
+      else if(MediaRecorder.isTypeSupported('audio/webm'))mimeType='audio/webm';
+      else if(MediaRecorder.isTypeSupported('audio/mp4'))mimeType='audio/mp4';
+    }
+    try{mediaRecorder=mimeType?new MediaRecorder(stream,{mimeType:mimeType}):new MediaRecorder(stream);}
+    catch(e){mediaRecorder=new MediaRecorder(stream);}
+    audioChunks=[];
+    mediaRecorder.ondataavailable=function(e){if(e.data&&e.data.size>0)audioChunks.push(e.data);};
+    mediaRecorder.onstop=function(){
+      stream.getTracks().forEach(function(t){t.stop();});
+      var blob=new Blob(audioChunks,{type:mediaRecorder.mimeType||'audio/webm'});
+      sendAudioForTranscription(blob);
+    };
+    mediaRecorder.start();
+    recording=true;
+    recSeconds=0;
+    document.getElementById('micBtn').classList.add('recording');
+    updateMicUI();
+    recTimer=setInterval(function(){recSeconds++;updateMicUI();},1000);
+  })
+  .catch(function(e){
+    console.error('Mic error',e);
+    document.getElementById('voiceStatus').textContent='Mic access denied \\u2014 type notes manually';
+  });
+}
+
+function stopRecording(){
+  if(mediaRecorder&&recording)mediaRecorder.stop();
+  recording=false;
+  clearInterval(recTimer);
+  document.getElementById('micBtn').classList.remove('recording');
+  document.getElementById('voiceStatus').textContent='Transcribing...';
+}
+
+function sendAudioForTranscription(blob){
+  fetch('/api/voice/transcribe',{method:'POST',headers:{'Content-Type':blob.type||'audio/webm'},body:blob})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d&&d.success&&d.transcript){
+      var ta=document.getElementById('notesInput');
+      ta.value=(ta.value.trim()?ta.value.trim()+'\\n':'')+d.transcript.trim();
+      document.getElementById('voiceStatus').textContent='Tap mic to dictate notes';
+    }else{
+      document.getElementById('voiceStatus').textContent='Could not transcribe \\u2014 type notes manually';
+    }
+  })
+  .catch(function(){
+    document.getElementById('voiceStatus').textContent='Network error \\u2014 type notes manually';
+  });
+}
+
+function updateStatus(){
+  var txt=(savedCount+sessionCount)+' saved';
+  if(bgQueue>0)txt+=' \\u00b7 '+bgQueue+' processing';
+  document.getElementById('statusRight').textContent=txt;
+}
+
+function flashQueued(){
+  var el=document.getElementById('queuedFlash');
+  el.classList.add('show');
+  setTimeout(function(){el.classList.remove('show');},2200);
+}
+
+function resetForm(){
+  photoB64s=[];
+  renderThumbs();
+  selectGrade('B');
+  document.getElementById('notesInput').value='';
+  document.getElementById('brandModelInput').value='';
+  document.getElementById('voiceStatus').textContent='Tap mic to dictate notes';
+}
+
+function submitItem(){
+  if(photoB64s.length===0){alert('Add at least one photo.');return;}
+  if(recording)stopRecording();
+  var itemId='item_'+Date.now();
+  var payload={
+    grade:currentGrade,
+    notes:document.getElementById('notesInput').value.trim(),
+    brand_model:document.getElementById('brandModelInput').value.trim(),
+    photos:photoB64s.slice(),
+    itemId:itemId
+  };
+  sessionCount++;
+  bgQueue++;
+  updateStatus();
+  flashQueued();
+  acquireWakeLock();
+  resetForm();
+  fetch('/api/generate-listing',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload)
+  })
+  .then(function(r){return r.json();})
+  .then(function(){bgQueue=Math.max(0,bgQueue-1);updateStatus();releaseWakeLock();})
+  .catch(function(){bgQueue=Math.max(0,bgQueue-1);updateStatus();releaseWakeLock();});
+}
+
+window.addEventListener('load',function(){
+  selectGrade('B');
+  fetch('/api/listing-count').then(function(r){return r.json();}).then(function(d){
+    savedCount=d.count||0;
+    updateStatus();
+  }).catch(function(){});
+});
+
+document.addEventListener('visibilitychange',function(){
+  if(document.visibilityState==='visible'&&bgQueue>0)acquireWakeLock();
+});
+</script>
+</body>
+</html>`;
 const LISTINGS_HTML="<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n<title>Quick Lister — Listings</title>\n<style>\n*{box-sizing:border-box;margin:0;padding:0;}\nbody{font-family:Arial,sans-serif;background:#f0f0f0;padding:24px;min-height:100vh;}\n.topbar{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;gap:16px;}\n.topbar-left h1{font-size:22px;color:#1a1a1a;margin-bottom:4px;}\n.meta{font-size:13px;color:#888;}\n.actions{display:flex;gap:10px;flex-shrink:0;flex-wrap:wrap;}\n.btn{padding:10px 18px;border:none;border-radius:6px;font-size:13px;font-weight:bold;cursor:pointer;transition:background 0.15s;white-space:nowrap;}\n.btn-new{background:#2e7d32;color:#fff;}.btn-new:hover{background:#1b5e20;}\n.btn-clear{background:#ff1744;color:#fff;}.btn-clear:hover{background:#d50000;}\n.btn-refresh{background:#455a64;color:#fff;}.btn-refresh:hover{background:#37474f;}\n.empty{text-align:center;padding:80px 20px;color:#aaa;font-size:14px;line-height:1.8;}\n.card{background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,0.12);margin-bottom:28px;overflow:hidden;}\n.card-header{padding:12px 18px;color:#fff;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}\n.card-num{background:rgba(255,255,255,0.25);border-radius:4px;padding:2px 8px;font-size:13px;font-weight:bold;flex-shrink:0;}\n.card-title-text{font-size:15px;font-weight:bold;flex:1;}\n.card-time{font-size:11px;opacity:0.7;white-space:nowrap;}\n.del-link{margin-left:auto;color:#fff;background:rgba(255,255,255,0.22);font-size:11px;font-weight:bold;padding:3px 8px;border-radius:4px;cursor:pointer;}\n.del-link:hover{background:#c62828;}\n.del-confirm{background:#fff3f3;border-bottom:1px solid #ffcdd2;padding:10px 18px;font-size:13px;color:#b71c1c;}\n.btn-yesdel{background:#c62828;color:#fff;border:none;border-radius:4px;padding:6px 12px;font-size:12px;font-weight:bold;cursor:pointer;margin-left:8px;}\n.btn-canceldel{background:#e0e0e0;color:#333;border:none;border-radius:4px;padding:6px 12px;font-size:12px;cursor:pointer;}\n.del-err{color:#c62828;font-size:12px;margin-left:8px;}\n.price-bar{background:#f5f5f5;padding:8px 18px;display:flex;gap:20px;font-size:13px;color:#444;border-bottom:1px solid #e0e0e0;flex-wrap:wrap;}\n.price-bar b{color:#1a1a1a;}\n.price-note-bar{background:#fffde7;padding:6px 18px;font-size:11px;color:#795548;border-bottom:1px solid #e0e0e0;font-style:italic;}\n.card-body{padding:16px 18px;}\n.copy-row{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}\n.copy-btn{padding:8px 16px;border:none;border-radius:4px;cursor:pointer;font-size:13px;font-weight:bold;transition:background 0.15s;}\n.copy-title-btn{background:#1565c0;color:#fff;}\n.copy-cond-btn{background:#37474f;color:#fff;}\n.copy-html-btn{background:#2e7d32;color:#fff;}\n.dl-btn{background:#e65100;color:#fff;}\n.rgbtn{background:#455a64;color:#fff;}\n.copy-btn.flashed{background:#4caf50!important;}\n.field-label{font-size:11px;font-weight:bold;color:#888;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;margin-top:14px;}\n.field-value{font-size:13px;color:#333;line-height:1.6;background:#f9f9f9;padding:10px 12px;border-radius:4px;border:1px solid #e0e0e0;}\n.photo-strip{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}\n.photo-thumb{width:100px;height:75px;object-fit:cover;border-radius:6px;border:2px solid #e0e0e0;cursor:pointer;}\n.photo-thumb:hover{border-color:#1565c0;}\ntextarea.hidden-ta{display:none;}\n.status-proc{display:flex;align-items:center;gap:10px;color:#e65100;font-size:14px;font-weight:bold;margin-bottom:10px;}\n.spinner{width:16px;height:16px;border:2px solid #ddd;border-top-color:#e65100;border-radius:50%;display:inline-block;animation:spin 0.7s linear infinite;}\n@keyframes spin{to{transform:rotate(360deg);}}\n.fail-msg{color:#c62828;font-weight:bold;font-size:14px;margin-bottom:10px;}\n.regen-panel{margin-top:10px;background:#f5f5f5;border:1px solid #ddd;border-radius:6px;padding:12px;}\n.regen-panel .rl{display:block;font-size:12px;font-weight:bold;color:#555;margin-bottom:4px;}\n.regen-panel .ri,.regen-panel .rt{width:100%;border:1px solid #ccc;border-radius:6px;padding:8px;font-size:13px;font-family:inherit;margin-bottom:4px;}\n.regen-panel .rt{min-height:60px;resize:vertical;margin-bottom:10px;}\n.regen-panel .rh{font-size:11px;color:#888;margin-bottom:10px;}\n.btn-regnow{background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:bold;cursor:pointer;}\n.rcancel{color:#1565c0;font-size:13px;cursor:pointer;margin-left:10px;}\n.regerr{color:#c62828;font-size:12px;margin-left:8px;display:none;}\n#uploadModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:flex-start;justify-content:center;overflow:auto;padding:30px 16px;}\n.um-card{background:#fff;border-radius:10px;max-width:520px;width:100%;padding:24px;box-shadow:0 8px 30px rgba(0,0,0,0.3);}\n.um-card h2{font-size:20px;color:#1a1a1a;margin-bottom:6px;}\n.um-lbl{font-size:12px;font-weight:bold;color:#555;display:block;margin-bottom:4px;}\n.um-in{width:100%;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:13px;font-family:inherit;margin-bottom:4px;}\n.um-help{font-size:11px;color:#888;margin-bottom:16px;}\n.ug-btn{padding:10px 6px;border:2px solid #ccc;border-radius:8px;background:#fafafa;cursor:pointer;font-size:18px;font-weight:bold;color:#333;display:flex;flex-direction:column;align-items:center;gap:2px;}\n.ug-btn span{font-size:10px;font-weight:normal;color:#888;}\n.ug-btn.sel{border-color:#2e7d32;background:#e8f5e9;color:#1b5e20;}\n</style>\n</head>\n<body>\n<div class=\"topbar\">\n  <div class=\"topbar-left\">\n    <h1>Quick Lister — Saved Listings</h1>\n    <div class=\"meta\" id=\"metaLine\">Loading...</div>\n  </div>\n  <div class=\"actions\">\n    <button class=\"btn btn-new\" onclick=\"openUploadModal()\">+ New Listing from Photos</button>\n    <button class=\"btn btn-refresh\" onclick=\"refresh()\">Refresh</button>\n    <button class=\"btn btn-clear\" onclick=\"clearAll()\">Clear All</button>\n  </div>\n</div>\n\n<div id=\"uploadModal\">\n  <div class=\"um-card\">\n    <h2>Upload Photos to Generate Listing</h2>\n    <label class=\"um-lbl\">Brand & Model (optional)</label>\n    <input type=\"text\" id=\"uploadBrandModel\" class=\"um-in\" placeholder=\"e.g. Dell D3100 docking station, Lot of 5 Cisco SG110-16 switches, HP 92A toner cartridge\">\n    <div class=\"um-help\">If left blank AI will identify the item from your photos.</div>\n    <label class=\"um-lbl\">Photos</label>\n    <input type=\"file\" id=\"uploadFiles\" accept=\"image/*\" multiple onchange=\"document.getElementById('uploadFileCount').textContent=this.files.length+' file(s) selected';\" class=\"um-in\">\n    <div class=\"um-help\">Select all photos for one item. You can select multiple photos at once. <span id=\"uploadFileCount\"></span></div>\n    <label class=\"um-lbl\">Condition / Testing Notes (optional)</label>\n    <textarea id=\"uploadNotes\" class=\"um-in\" style=\"min-height:80px;resize:vertical;\" placeholder=\"e.g. tested working, missing power adapter, screen has small scratch bottom right\"></textarea>\n    <label class=\"um-lbl\">Condition Grade</label>\n    <div style=\"display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin:6px 0 18px;\">\n      <button type=\"button\" class=\"ug-btn\" data-grade=\"A\" onclick=\"selectUploadGrade(this)\">A<span>Like New</span></button>\n      <button type=\"button\" class=\"ug-btn\" data-grade=\"B\" onclick=\"selectUploadGrade(this)\">B<span>Good</span></button>\n      <button type=\"button\" class=\"ug-btn\" data-grade=\"C\" onclick=\"selectUploadGrade(this)\">C<span>Heavy Wear</span></button>\n      <button type=\"button\" class=\"ug-btn\" data-grade=\"D\" onclick=\"selectUploadGrade(this)\">D<span>Parts/Untested</span></button>\n    </div>\n    <div id=\"uploadError\" style=\"display:none;background:#ffebee;border:1px solid #c62828;color:#b71c1c;padding:10px 12px;border-radius:6px;font-size:13px;margin-bottom:14px;\"></div>\n    <button class=\"btn btn-new\" id=\"uploadGenBtn\" onclick=\"doUpload()\" style=\"width:100%;\">Generate Listing</button>\n    <div style=\"text-align:center;margin-top:10px;\"><span onclick=\"closeUploadModal()\" style=\"color:#1565c0;font-size:13px;cursor:pointer;\">Cancel</span></div>\n  </div>\n</div>\n\n<div id=\"listingsContainer\"><div class=\"empty\">Loading...</div></div>\n<script>\nfunction esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');}\nfunction copyBtn(btn){var el=document.getElementById(btn.getAttribute('data-target'));if(!el)return;var isArea=btn.getAttribute('data-area')==='1';var val=isArea?el.value:el.textContent;navigator.clipboard.writeText(val.trim()).then(function(){var o=btn.textContent;btn.classList.add('flashed');btn.textContent='Copied!';setTimeout(function(){btn.classList.remove('flashed');btn.textContent=o;},1500);});}\nfunction downloadPhotos(btn){var id=btn.getAttribute('data-id');var count=parseInt(btn.getAttribute('data-count'),10)||0;var title=btn.getAttribute('data-title')||'';var safe=title.replace(/[^a-zA-Z0-9]/g,'_').slice(0,30);for(var i=1;i<=count;i++){(function(idx){setTimeout(function(){var a=document.createElement('a');a.href='/api/photo/'+id+'/'+idx;a.download=safe+'_photo'+idx+'.jpg';document.body.appendChild(a);a.click();document.body.removeChild(a);},(idx-1)*500);})(i);}}\nfunction clearAll(){if(!confirm('Clear all listings and photos? This cannot be undone.'))return;fetch('/api/clear-listings',{method:'POST'}).then(function(){location.reload();});}\nfunction refresh(){location.reload();}\nvar uploadGrade='B';\nfunction openUploadModal(){uploadGrade='B';document.getElementById('uploadBrandModel').value='';document.getElementById('uploadFiles').value='';document.getElementById('uploadNotes').value='';document.getElementById('uploadFileCount').textContent='';var e=document.getElementById('uploadError');e.style.display='none';e.textContent='';var b=document.getElementById('uploadGenBtn');b.disabled=false;b.textContent='Generate Listing';Array.prototype.forEach.call(document.querySelectorAll('.ug-btn'),function(x){x.classList.toggle('sel',x.getAttribute('data-grade')==='B');});document.getElementById('uploadModal').style.display='flex';}\nfunction closeUploadModal(){document.getElementById('uploadModal').style.display='none';}\nfunction selectUploadGrade(btn){uploadGrade=btn.getAttribute('data-grade');Array.prototype.forEach.call(document.querySelectorAll('.ug-btn'),function(x){x.classList.remove('sel');});btn.classList.add('sel');}\nfunction readFileB64(file){return new Promise(function(resolve,reject){var fr=new FileReader();fr.onload=function(){var v=String(fr.result||'');var c=v.indexOf(',');resolve(c>=0?v.slice(c+1):v);};fr.onerror=function(){reject(new Error('read failed'));};fr.readAsDataURL(file);});}\nfunction doUpload(){var files=document.getElementById('uploadFiles').files;var err=document.getElementById('uploadError');err.style.display='none';if(!files||files.length===0){err.textContent='Please select at least one photo.';err.style.display='block';return;}var bm=document.getElementById('uploadBrandModel').value;var notes=document.getElementById('uploadNotes').value;var btn=document.getElementById('uploadGenBtn');btn.disabled=true;btn.textContent='Generating listing...';var arr=[];for(var i=0;i<files.length;i++)arr.push(files[i]);Promise.all(arr.map(readFileB64)).then(function(b64s){return fetch('/api/generate-from-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({photos:b64s,grade:uploadGrade,notes:notes,brand_model:bm})});}).then(function(r){return r.json();}).then(function(d){if(d&&d.success){closeUploadModal();location.reload();}else{btn.disabled=false;btn.textContent='Generate Listing';err.textContent=(d&&d.error)?d.error:'Upload failed - try again';err.style.display='block';}}).catch(function(){btn.disabled=false;btn.textContent='Generate Listing';err.textContent='Network error - try again';err.style.display='block';});}\nvar COLORS=['#1565c0','#2e7d32','#e65100','#6a1b9a','#00838f','#c62828','#37474f','#558b2f'];\nfunction regenControls(id){return '<div style=\"margin-top:12px;\"><button class=\"copy-btn rgbtn\" data-id=\"'+id+'\" onclick=\"toggleRegen(this)\">&#8634; Regenerate</button></div>'\n+'<div class=\"regen-panel\" id=\"regenpanel_'+id+'\" style=\"display:none;\">'\n+'<label class=\"rl\">Brand & Model (optional)</label>'\n+'<input type=\"text\" class=\"ri\" id=\"rbm_'+id+'\" placeholder=\"e.g. Dell D3100 docking station\">'\n+'<div class=\"rh\">Leave blank to re-identify from photos</div>'\n+'<label class=\"rl\">Additional Notes (optional)</label>'\n+'<textarea class=\"rt\" id=\"rnotes_'+id+'\" placeholder=\"e.g. item is actually a lot of 3, missing power adapter, screen cracked top left\"></textarea>'\n+'<div><button class=\"btn-regnow\" id=\"regnow_'+id+'\" data-id=\"'+id+'\" onclick=\"doRegenerate(this)\">Regenerate Now</button> <span class=\"rcancel\" data-id=\"'+id+'\" onclick=\"cancelRegen(this)\">Cancel</span> <span class=\"regerr\" id=\"regerr_'+id+'\"></span></div>'\n+'</div>';}\nfunction renderCard(item,i){\n  var id=item.itemId||'';\n  var status=item.status||'complete';\n  var color=COLORS[i%COLORS.length];\n  var time=item.timestamp?new Date(item.timestamp).toLocaleString():'';\n  var photoCount=item.photoCount||0;\n  var titleText=(status==='processing')?'Processing...':(item.title||'(untitled)');\n  var photoStrip='';\n  if(photoCount>0&&id){var thumbs='';for(var p=1;p<=Math.min(photoCount,8);p++){thumbs+='<img class=\"photo-thumb\" src=\"/api/photo/'+id+'/'+p+'\" onclick=\"window.open(this.src)\" title=\"Click to view full size\">';}photoStrip='<div class=\"field-label\">Photos ('+photoCount+')</div><div class=\"photo-strip\">'+thumbs+'</div>';}\n  var body='';\n  if(status==='processing'){\n    body='<div class=\"card-body\"><div class=\"status-proc\"><span class=\"spinner\"></span> Generating listing... this takes about a minute.</div>'+photoStrip+regenControls(id)+'</div>';\n  }else if(status==='failed'){\n    body='<div class=\"card-body\"><div class=\"fail-msg\">Generation failed'+(item.error?(': '+esc(item.error)):'')+'</div>'+photoStrip+regenControls(id)+'</div>';\n  }else{\n    var price=item.suggested_price?'$'+item.suggested_price:'--';\n    var accept=item.accept_price?'$'+item.accept_price:'--';\n    var decline=item.decline_price?'$'+item.decline_price:'--';\n    var dl=(photoCount>0&&id)?'<button class=\"copy-btn dl-btn\" data-id=\"'+id+'\" data-count=\"'+photoCount+'\" data-title=\"'+esc(item.title||'')+'\" onclick=\"downloadPhotos(this)\">&#8595; '+photoCount+' Photos</button>':'';\n    body=(item.price_note?'<div class=\"price-note-bar\">'+esc(item.price_note)+'</div>':'')\n    +'<div class=\"price-bar\"><span><b>List:</b> '+price+'</span><span><b>Accept:</b> '+accept+'</span><span><b>Decline:</b> '+decline+'</span></div>'\n    +'<div class=\"card-body\">'\n    +'<div class=\"copy-row\">'\n    +'<button class=\"copy-btn copy-title-btn\" data-target=\"t_'+id+'\" onclick=\"copyBtn(this)\">Copy Title</button>'\n    +'<button class=\"copy-btn copy-cond-btn\" data-target=\"c_'+id+'\" onclick=\"copyBtn(this)\">Copy Condition</button>'\n    +'<button class=\"copy-btn copy-html-btn\" data-target=\"h_'+id+'\" data-area=\"1\" onclick=\"copyBtn(this)\">Copy HTML</button>'\n    +dl\n    +'</div>'\n    +'<div class=\"field-label\">Title</div><div class=\"field-value\" id=\"t_'+id+'\">'+esc(item.title)+'</div>'\n    +'<div class=\"field-label\">Condition Box</div><div class=\"field-value\" id=\"c_'+id+'\">'+esc(item.condition_box)+'</div>'\n    +'<div class=\"field-label\">HTML Description</div><div class=\"field-value\" style=\"font-size:12px;max-height:80px;overflow:hidden;opacity:0.7;\">'+(item.description_html||'')+'</div>'\n    +'<textarea class=\"hidden-ta\" id=\"h_'+id+'\">'+(item.description_html||'')+'</textarea>'\n    +photoStrip+regenControls(id)\n    +'</div>';\n  }\n  return '<div class=\"card\" id=\"card_'+id+'\" data-item-id=\"'+id+'\" data-status=\"'+status+'\">'\n  +'<div class=\"card-header\" style=\"background:'+color+';\">'\n  +'<span class=\"card-num\">'+(i+1)+'</span>'\n  +'<span class=\"card-title-text\">'+esc(titleText)+'</span>'\n  +'<span class=\"card-time\">'+time+'</span>'\n  +'<span class=\"del-link\" data-id=\"'+id+'\" onclick=\"askDelete(this)\">&#10005; Delete</span>'\n  +'</div>'\n  +'<div class=\"del-confirm\" id=\"delconfirm_'+id+'\" style=\"display:none;\">Remove this listing? This cannot be undone. <button class=\"btn-yesdel\" data-id=\"'+id+'\" onclick=\"confirmDelete(this)\">Yes, Delete</button> <button class=\"btn-canceldel\" data-id=\"'+id+'\" onclick=\"cancelDelete(this)\">Cancel</button> <span class=\"del-err\" id=\"delerr_'+id+'\"></span></div>'\n  +body\n  +'</div>';\n}\nfunction renderAll(items){\n  var c=document.getElementById('listingsContainer');\n  document.getElementById('metaLine').textContent=items.length+' listing'+(items.length!==1?'s':'')+' saved';\n  if(!items.length){c.innerHTML='<div class=\"empty\">No listings saved yet.<br>Generate from your phone, or use + New Listing from Photos above.</div>';return;}\n  c.innerHTML=items.map(renderCard).join('');\n}\nvar pollTimer=null;\nfunction startPollingIfNeeded(items){var anyProc=items.some(function(it){return (it.status||'complete')==='processing';});if(anyProc&&!pollTimer){pollTimer=setInterval(pollOnce,5000);}else if(!anyProc&&pollTimer){clearInterval(pollTimer);pollTimer=null;}}\nfunction pollOnce(){fetch('/api/get-listings').then(function(r){return r.json();}).then(function(data){var items=data.listings||[];items.forEach(function(it,i){var card=document.getElementById('card_'+it.itemId);if(card&&card.getAttribute('data-status')!==(it.status||'complete')){var tmp=document.createElement('div');tmp.innerHTML=renderCard(it,i);if(tmp.firstChild)card.parentNode.replaceChild(tmp.firstChild,card);}});startPollingIfNeeded(items);}).catch(function(){});}\nfunction refreshNow(){fetch('/api/get-listings').then(function(r){return r.json();}).then(function(data){var items=data.listings||[];renderAll(items);startPollingIfNeeded(items);}).catch(function(){var c=document.getElementById('listingsContainer');c.innerHTML='<div class=\"empty\">Could not reach server. Hit Refresh.</div>';});}\nfunction toggleRegen(btn){var id=btn.getAttribute('data-id');var p=document.getElementById('regenpanel_'+id);if(p)p.style.display=(p.style.display==='none'||!p.style.display)?'block':'none';}\nfunction cancelRegen(el){var id=el.getAttribute('data-id');var p=document.getElementById('regenpanel_'+id);if(p)p.style.display='none';}\nfunction doRegenerate(btn){var id=btn.getAttribute('data-id');var bm=(document.getElementById('rbm_'+id)||{}).value||'';var notes=(document.getElementById('rnotes_'+id)||{}).value||'';var err=document.getElementById('regerr_'+id);if(err){err.style.display='none';err.textContent='';}btn.disabled=true;btn.textContent='Regenerating...';fetch('/api/regenerate/'+encodeURIComponent(id),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({brand_model:bm,notes:notes})}).then(function(r){return r.json();}).then(function(d){if(d&&(d.success||d.status==='processing')){refreshNow();}else{btn.disabled=false;btn.textContent='Regenerate Now';if(err){err.textContent=(d&&d.error)?d.error:'Failed';err.style.display='inline';}}}).catch(function(){btn.disabled=false;btn.textContent='Regenerate Now';if(err){err.textContent='Network error';err.style.display='inline';}});}\nfunction askDelete(el){var id=el.getAttribute('data-id');var c=document.getElementById('delconfirm_'+id);if(c)c.style.display='block';}\nfunction cancelDelete(el){var id=el.getAttribute('data-id');var c=document.getElementById('delconfirm_'+id);if(c)c.style.display='none';}\nfunction confirmDelete(el){var id=el.getAttribute('data-id');var err=document.getElementById('delerr_'+id);if(err){err.textContent='';}el.disabled=true;el.textContent='Deleting...';fetch('/api/listing/'+encodeURIComponent(id),{method:'DELETE'}).then(function(r){return r.json();}).then(function(d){if(d&&d.success){var card=document.getElementById('card_'+id);if(card&&card.parentNode)card.parentNode.removeChild(card);}else{el.disabled=false;el.textContent='Yes, Delete';if(err){err.textContent=(d&&d.error)?d.error:'Delete failed';}}}).catch(function(){el.disabled=false;el.textContent='Yes, Delete';if(err){err.textContent='Network error';}});}\nrefreshNow();\n</script>\n</body>\n</html>";
 
-function callClaude(payload,callback){
-  var body=JSON.stringify(payload);
-  var opts={hostname:'api.anthropic.com',path:'/v1/messages',method:'POST',headers:{'Content-Type':'application/json','x-api-key':API_KEY,'anthropic-version':'2023-06-01','Content-Length':Buffer.byteLength(body)}};
+function httpsPostJSON(hostname,path,headers,bodyObj,callback){
+  var body=JSON.stringify(bodyObj);
+  var h={'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)};
+  for(var k in headers){if(Object.prototype.hasOwnProperty.call(headers,k))h[k]=headers[k];}
+  var opts={hostname:hostname,path:path,method:'POST',headers:h};
   var req=https.request(opts,function(res){
     var data='';
     res.on('data',function(c){data+=c;});
-    res.on('end',function(){
-      console.log('[API] Status:',res.statusCode);
-      if(res.statusCode!==200)console.log('[API] Error:',data.slice(0,200));
-      try{callback(null,JSON.parse(data));}catch(e){callback(null,{content:[],type:'error'});}
-    });
+    res.on('end',function(){callback(null,res.statusCode,data);});
   });
   req.on('error',function(e){callback(e);});
   req.write(body);req.end();
 }
 
 function extractText(c){return(c||[]).filter(function(b){return b.type==='text';}).map(function(b){return b.text;}).join('');}
+
+// --- Multi-provider AI callers -------------------------------------------
+// Every caller normalizes to callback(err, plainTextResponse) so downstream
+// code (extractJSON etc) does not need to know which provider answered.
+
+function callGemini(params,callback){
+  var parts=[{text:params.text||''}];
+  (params.images||[]).forEach(function(b64){parts.push({inline_data:{mime_type:'image/jpeg',data:b64}});});
+  var body={system_instruction:{parts:[{text:params.system||''}]},contents:[{role:'user',parts:parts}],generationConfig:{maxOutputTokens:params.maxTokens||1500}};
+  if(params.useSearch)body.tools=[{google_search:{}}];
+  httpsPostJSON('generativelanguage.googleapis.com','/v1beta/models/gemini-2.5-flash:generateContent?key='+encodeURIComponent(GEMINI_API_KEY),{},body,function(err,status,data){
+    if(err){callback(err);return;}
+    console.log('[GEMINI] Status:',status);
+    if(status!==200)console.log('[GEMINI] Error:',data.slice(0,300));
+    try{
+      var j=JSON.parse(data);
+      var cand=(j.candidates&&j.candidates[0])||null;
+      var txt=(cand&&cand.content&&cand.content.parts)?cand.content.parts.filter(function(p){return p.text;}).map(function(p){return p.text;}).join(''):'';
+      if(!txt){callback(new Error('Empty Gemini response'));return;}
+      callback(null,txt);
+    }catch(e){callback(e);}
+  });
+}
+
+function callOpenRouter(params,callback){
+  var content=[{type:'text',text:params.text||''}];
+  (params.images||[]).forEach(function(b64){content.push({type:'image_url',image_url:{url:'data:image/jpeg;base64,'+b64}});});
+  var model='google/gemini-2.5-flash'+(params.useSearch?':online':'');
+  var body={model:model,max_tokens:params.maxTokens||1500,messages:[{role:'system',content:params.system||''},{role:'user',content:content}]};
+  httpsPostJSON('openrouter.ai','/api/v1/chat/completions',{'Authorization':'Bearer '+OPENROUTER_API_KEY},body,function(err,status,data){
+    if(err){callback(err);return;}
+    console.log('[OPENROUTER] Status:',status);
+    if(status!==200)console.log('[OPENROUTER] Error:',data.slice(0,300));
+    try{
+      var j=JSON.parse(data);
+      var txt=(j.choices&&j.choices[0]&&j.choices[0].message)?j.choices[0].message.content:'';
+      if(!txt){callback(new Error('Empty OpenRouter response'));return;}
+      callback(null,txt);
+    }catch(e){callback(e);}
+  });
+}
+
+function callClaudeAI(params,callback){
+  var content=[{type:'text',text:params.text||''}];
+  (params.images||[]).forEach(function(b64){content.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}});});
+  var payload={model:'claude-sonnet-4-5',max_tokens:params.maxTokens||1500,system:params.system||'',messages:[{role:'user',content:content}]};
+  if(params.useSearch)payload.tools=[{type:'web_search_20250305',name:'web_search'}];
+  httpsPostJSON('api.anthropic.com','/v1/messages',{'x-api-key':ANTHROPIC_API_KEY,'anthropic-version':'2023-06-01'},payload,function(err,status,data){
+    if(err){callback(err);return;}
+    console.log('[CLAUDE] Status:',status);
+    if(status!==200)console.log('[CLAUDE] Error:',data.slice(0,300));
+    try{
+      var j=JSON.parse(data);
+      if(j.type==='error'){callback(new Error('Claude API error'));return;}
+      var txt=extractText(j.content);
+      if(!txt){callback(new Error('Empty Claude response'));return;}
+      callback(null,txt);
+    }catch(e){callback(e);}
+  });
+}
+
+// Unified entry point: routes to whichever provider has a key configured,
+// in priority order Gemini -> OpenRouter -> Claude. Same params shape for all.
+function callAI(params,callback){
+  var provider=activeProvider();
+  if(provider==='gemini')callGemini(params,callback);
+  else if(provider==='openrouter')callOpenRouter(params,callback);
+  else if(provider==='claude')callClaudeAI(params,callback);
+  else callback(new Error('No AI provider API key configured'));
+}
+
+// Reads a raw (non-JSON) request body, e.g. an uploaded audio blob. Caps size to avoid abuse.
+function readRawBody(req,cb){
+  var chunks=[],size=0,limit=20*1024*1024,failed=false;
+  req.on('data',function(c){
+    if(failed)return;
+    size+=c.length;
+    if(size>limit){failed=true;cb(new Error('Payload too large'));req.destroy();return;}
+    chunks.push(c);
+  });
+  req.on('end',function(){if(!failed)cb(null,Buffer.concat(chunks));});
+  req.on('error',function(e){if(!failed)cb(e);});
+}
+
+// Transcribes an audio recording via Gemini 2.5 Flash (direct API, falling back to OpenRouter).
+// Claude is not used here — it has no audio input support. Returns callback(err, transcriptText).
+function transcribeAudio(audioB64,mimeType,callback){
+  var sysPrompt='You are an expert audio transcriber for an electronics and merchandise reselling warehouse. Accurately transcribe the spoken audio verbatim. Pay special attention to quiet speech, alphanumeric model numbers, accessories, testing notes, and cosmetic flaw descriptions. Output ONLY the clean transcribed text without markdown formatting or commentary.';
+  if(GEMINI_API_KEY){
+    var parts=[{text:'Transcribe this audio recording.'},{inline_data:{mime_type:mimeType||'audio/webm',data:audioB64}}];
+    var body={system_instruction:{parts:[{text:sysPrompt}]},contents:[{role:'user',parts:parts}],generationConfig:{maxOutputTokens:800}};
+    httpsPostJSON('generativelanguage.googleapis.com','/v1beta/models/gemini-2.5-flash:generateContent?key='+encodeURIComponent(GEMINI_API_KEY),{},body,function(err,status,data){
+      if(err){callback(err);return;}
+      console.log('[VOICE][GEMINI] Status:',status);
+      if(status!==200)console.log('[VOICE][GEMINI] Error:',data.slice(0,300));
+      try{
+        var j=JSON.parse(data);
+        var cand=(j.candidates&&j.candidates[0])||null;
+        var txt=(cand&&cand.content&&cand.content.parts)?cand.content.parts.filter(function(p){return p.text;}).map(function(p){return p.text;}).join(''):'';
+        if(!txt){callback(new Error('Empty transcript'));return;}
+        callback(null,txt);
+      }catch(e){callback(e);}
+    });
+    return;
+  }
+  if(OPENROUTER_API_KEY){
+    var content=[{type:'text',text:'Transcribe this audio recording.'},{type:'input_audio',input_audio:{data:audioB64,format:(mimeType&&mimeType.indexOf('wav')>=0)?'wav':'webm'}}];
+    var obody={model:'google/gemini-2.5-flash',max_tokens:800,messages:[{role:'system',content:sysPrompt},{role:'user',content:content}]};
+    httpsPostJSON('openrouter.ai','/api/v1/chat/completions',{'Authorization':'Bearer '+OPENROUTER_API_KEY},obody,function(err,status,data){
+      if(err){callback(err);return;}
+      console.log('[VOICE][OPENROUTER] Status:',status);
+      if(status!==200)console.log('[VOICE][OPENROUTER] Error:',data.slice(0,300));
+      try{
+        var j=JSON.parse(data);
+        var txt=(j.choices&&j.choices[0]&&j.choices[0].message)?j.choices[0].message.content:'';
+        if(!txt){callback(new Error('Empty transcript'));return;}
+        callback(null,txt);
+      }catch(e){callback(e);}
+    });
+    return;
+  }
+  callback(new Error('No transcription provider configured'));
+}
 
 function extractJSON(text){
   var depth=0,start=-1;
@@ -65,14 +478,12 @@ function runGeneration(itemId,photos,grade,notes,brandModel,tag){
     var bm=(brandModel&&String(brandModel).trim())?String(brandModel).trim():'';
     var visionText='Identify this item precisely. Read any visible model numbers, serial numbers, or labels. Note what is included and any condition issues. Return ONLY a JSON object: item_name, brand, model, serial_number, category, condition_notes, includes.';
     if(bm){visionText='The seller identifies this item as: '+bm+'\nUse this as your primary identifier. Confirm from the photos and add any additional details visible.\n'+visionText;}
-    var photoContent=[{type:'text',text:visionText}];
-    (photos||[]).slice(0,5).forEach(function(b64){photoContent.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}});});
-    callClaude({model:'claude-sonnet-4-5',max_tokens:400,system:'You are an expert electronics appraiser. Identify the item precisely from these photos. Return ONLY a JSON object, no markdown.',messages:[{role:'user',content:photoContent}]},function(err,r1){
+    callAI({system:'You are an expert electronics appraiser. Identify the item precisely from these photos. Return ONLY a JSON object, no markdown.',text:visionText,images:(photos||[]).slice(0,5),maxTokens:400,useSearch:false},function(err,txt1){
       try{
-        if(err||!r1||r1.type==='error'){console.log('['+tag+'] itemId '+itemId+' failed: vision step');updateListingRecord(itemId,{status:'failed',error:'Vision step failed'});return;}
-        var vd=extractJSON(extractText(r1.content))||{item_name:'Unknown item'};
+        if(err){console.log('['+tag+'] itemId '+itemId+' failed: vision step -',err.message);updateListingRecord(itemId,{status:'failed',error:'Vision step failed'});return;}
+        var vd=extractJSON(txt1)||{item_name:'Unknown item'};
         var itemName=bm?bm:(vd.item_name||'Unknown item');
-        callClaude({model:'claude-sonnet-4-5',max_tokens:1500,tools:[{type:'web_search_20250305',name:'web_search'}],system:[
+        var pricingSystem=[
           'You are an experienced eBay seller writing a listing for a personal resale account.',
           'Search eBay completed/sold listings for accurate current pricing.',
           'Pricing: list just below mid-range of recent comps.',
@@ -83,10 +494,12 @@ function runGeneration(itemId,photos,grade,notes,brandModel,tag){
           'Grade: A=Like New, B=Good Normal Used, C=Fair Heavy Wear, D=Parts/Untested',
           'Return ONLY this JSON no markdown:',
           '{"title":"under 80 chars","condition_box":"2-3 sentences","description_html":"full HTML with specs table","suggested_price":45,"accept_price":36,"decline_price":28,"price_note":"internal context"}'
-        ].join('\n'),messages:[{role:'user',content:'Item: '+itemName+'\nGrade: '+grade+' ('+gradeName+')\nSerial: '+(vd.serial_number||'Not visible')+'\nIncludes: '+(vd.includes||'See photos')+'\nCondition: '+(vd.condition_notes||'See photos')+'\nNotes: '+(notes||'None')+'\n\nSearch eBay sold listings and generate listing JSON.'}]},function(err2,r2){
+        ].join('\n');
+        var pricingText='Item: '+itemName+'\nGrade: '+grade+' ('+gradeName+')\nSerial: '+(vd.serial_number||'Not visible')+'\nIncludes: '+(vd.includes||'See photos')+'\nCondition: '+(vd.condition_notes||'See photos')+'\nNotes: '+(notes||'None')+'\n\nSearch eBay sold listings and generate listing JSON.';
+        callAI({system:pricingSystem,text:pricingText,images:[],maxTokens:1500,useSearch:true},function(err2,txt2){
           try{
-            if(err2||!r2||r2.type==='error'){console.log('['+tag+'] itemId '+itemId+' failed: pricing step');updateListingRecord(itemId,{status:'failed',error:'Generation failed'});return;}
-            var result=extractJSON(extractText(r2.content));
+            if(err2){console.log('['+tag+'] itemId '+itemId+' failed: pricing step -',err2.message);updateListingRecord(itemId,{status:'failed',error:'Generation failed'});return;}
+            var result=extractJSON(txt2);
             if(!result||!result.title){console.log('['+tag+'] itemId '+itemId+' failed: could not parse listing');updateListingRecord(itemId,{status:'failed',error:'Could not parse listing'});return;}
             updateListingRecord(itemId,{title:result.title,condition_box:(result.condition_box!=null?result.condition_box:'See photos.'),description_html:(result.description_html!=null?result.description_html:'<p>'+itemName+'</p>'),suggested_price:(result.suggested_price!=null?result.suggested_price:0),accept_price:(result.accept_price!=null?result.accept_price:0),decline_price:(result.decline_price!=null?result.decline_price:0),price_note:(result.price_note!=null?result.price_note:''),status:'complete',error:null});
             console.log('['+tag+'] itemId '+itemId+' '+doneWord+' successfully');
@@ -142,6 +555,23 @@ const server=http.createServer(function(req,res){
     saveListings([]);
     try{if(fs.existsSync(PHOTOS_DIR)){fs.readdirSync(PHOTOS_DIR).forEach(function(d){var dp=path.join(PHOTOS_DIR,d);fs.readdirSync(dp).forEach(function(f){fs.unlinkSync(path.join(dp,f));});fs.rmdirSync(dp);});}}catch(e){}
     sendJSON(res,200,{success:true});return;
+  }
+
+  // Voice capture: accepts a raw audio blob (audio/webm etc, not JSON) from the phone's MediaRecorder,
+  // transcribes it via Gemini 2.5 Flash, and returns the transcript so the client can drop it into notes.
+  // Always resolves — never crashes — so the client can gracefully fall back to manual typing on failure.
+  if(req.method==='POST'&&req.url==='/api/voice/transcribe'){
+    readRawBody(req,function(err,buf){
+      try{
+        if(err||!buf||!buf.length){sendJSON(res,400,{success:false,error:'No audio received'});return;}
+        var ctype=(req.headers['content-type']||'audio/webm').split(';')[0].trim();
+        transcribeAudio(buf.toString('base64'),ctype,function(terr,transcript){
+          if(terr||!transcript){console.log('[VOICE] transcription failed:',terr&&terr.message);sendJSON(res,200,{success:false,error:'Transcription failed'});return;}
+          sendJSON(res,200,{success:true,transcript:transcript.trim()});
+        });
+      }catch(e){console.log('[VOICE] failed:',e.message);sendJSON(res,200,{success:false,error:'Server error'});}
+    });
+    return;
   }
 
   // Phone capture: BACKGROUND generation via the shared runGeneration() pipeline (same as upload/regen).
