@@ -54,6 +54,9 @@ body{display:flex;flex-direction:column;}
 .btn{width:100%;padding:18px;border:none;border-radius:8px;font-family:var(--display);font-size:1.3rem;letter-spacing:0.06em;cursor:pointer;transition:all 0.15s;}
 .btn-primary{background:var(--accent);color:#000;}.btn-primary:active{background:#c8df00;}
 .btn-primary:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
+.btn-primary.uploading{background:var(--border);color:var(--text);cursor:wait;}
+.btn-spinner{display:inline-block;width:16px;height:16px;margin-right:8px;vertical-align:-3px;border:2px solid rgba(242,242,242,0.3);border-top-color:var(--text);border-radius:50%;animation:btnspin 0.7s linear infinite;}
+@keyframes btnspin{to{transform:rotate(360deg);}}
 .gallery-btn{display:block;text-align:center;border:1px dashed var(--border);border-radius:8px;padding:16px;cursor:pointer;}
 .gallery-btn .gb-title{font-family:var(--display);font-size:1.1rem;letter-spacing:0.05em;color:var(--text);}
 .gallery-btn .gb-sub{font-family:var(--mono);font-size:0.6rem;color:var(--muted);letter-spacing:0.06em;margin-top:4px;}
@@ -249,25 +252,45 @@ function submitItem(){
   if(photoB64s.length===0){alert('Add at least one photo.');return;}
   if(recording)stopRecording();
   var itemId='item_'+Date.now();
+  var photoCount=photoB64s.length;
   var payload={
     notes:document.getElementById('notesInput').value.trim(),
     photos:photoB64s.slice(),
     itemId:itemId
   };
-  sessionCount++;
+  var btn=document.getElementById('submitBtn');
+  // Multi-megabyte photos can take a while to upload over cellular — keep the button disabled and
+  // visibly "uploading" for the whole request so the operator doesn't close the tab or navigate away
+  // mid-upload (which would silently drop the item). Photos/notes are only cleared once the upload
+  // actually succeeds, so a failed/interrupted upload never loses the operator's work.
+  btn.disabled=true;
+  btn.classList.add('uploading');
+  btn.innerHTML='<span class="btn-spinner"></span>Uploading '+photoCount+' photo'+(photoCount!==1?'s':'')+'… stay on this screen';
   bgQueue++;
   updateStatus();
-  flashQueued();
   acquireWakeLock();
-  resetForm();
   fetch('/api/generate-listing',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify(payload)
   })
   .then(function(r){return r.json();})
-  .then(function(){bgQueue=Math.max(0,bgQueue-1);updateStatus();releaseWakeLock();})
-  .catch(function(){bgQueue=Math.max(0,bgQueue-1);updateStatus();releaseWakeLock();});
+  .then(function(){
+    sessionCount++;
+    flashQueued();
+    resetForm();
+  })
+  .catch(function(){
+    alert('Upload failed — check your connection and tap Generate Listing to try again.');
+  })
+  .then(function(){
+    bgQueue=Math.max(0,bgQueue-1);
+    btn.disabled=false;
+    btn.classList.remove('uploading');
+    btn.textContent='Generate Listing';
+    releaseWakeLock();
+    updateStatus();
+  });
 }
 
 window.addEventListener('load',function(){
@@ -308,7 +331,13 @@ function extractText(c){return(c||[]).filter(function(b){return b.type==='text';
 function callGemini(params,callback){
   var parts=[{text:params.text||''}];
   (params.images||[]).forEach(function(b64){parts.push({inline_data:{mime_type:'image/jpeg',data:b64}});});
-  var body={system_instruction:{parts:[{text:params.system||''}]},contents:[{role:'user',parts:parts}],generationConfig:{maxOutputTokens:params.maxTokens||1500}};
+  var generationConfig={maxOutputTokens:params.maxTokens||1500};
+  // response_mime_type forces strict JSON output, which is the biggest lever against "could not parse
+  // listing" errors — but the Gemini API rejects it when the google_search tool is attached, so it can
+  // only be forced on the tool-free (vision) call. The search call still asks for JSON via the prompt
+  // and leans on extractJSON's tolerant parsing instead.
+  if(!params.useSearch)generationConfig.response_mime_type='application/json';
+  var body={system_instruction:{parts:[{text:params.system||''}]},contents:[{role:'user',parts:parts}],generationConfig:generationConfig};
   if(params.useSearch)body.tools=[{google_search:{}}];
   httpsPostJSON('generativelanguage.googleapis.com','/v1beta/models/gemini-2.5-flash:generateContent?key='+encodeURIComponent(GEMINI_API_KEY),{},body,function(err,status,data){
     if(err){callback(err);return;}
@@ -328,7 +357,7 @@ function callOpenRouter(params,callback){
   var content=[{type:'text',text:params.text||''}];
   (params.images||[]).forEach(function(b64){content.push({type:'image_url',image_url:{url:'data:image/jpeg;base64,'+b64}});});
   var model='google/gemini-2.5-flash'+(params.useSearch?':online':'');
-  var body={model:model,max_tokens:params.maxTokens||1500,messages:[{role:'system',content:params.system||''},{role:'user',content:content}]};
+  var body={model:model,max_tokens:params.maxTokens||1500,messages:[{role:'system',content:params.system||''},{role:'user',content:content}],response_format:{type:'json_object'}};
   httpsPostJSON('openrouter.ai','/api/v1/chat/completions',{'Authorization':'Bearer '+OPENROUTER_API_KEY},body,function(err,status,data){
     if(err){callback(err);return;}
     console.log('[OPENROUTER] Status:',status);
@@ -424,12 +453,91 @@ function transcribeAudio(audioB64,mimeType,callback){
   callback(new Error('No transcription provider configured'));
 }
 
-function extractJSON(text){
-  var depth=0,start=-1;
+// Finds the outermost {...} object in a string, ignoring braces that appear inside quoted string
+// values (the naive brace-counter this replaced would get confused by e.g. "{" inside description_html).
+function findOutermostObject(text){
+  var depth=0,start=-1,inStr=false,esc=false;
   for(var i=0;i<text.length;i++){
-    if(text[i]==='{'){if(depth===0)start=i;depth++;}
-    else if(text[i]==='}' && depth>0){depth--;if(depth===0&&start!==-1){try{return JSON.parse(text.slice(start,i+1));}catch(e){start=-1;}}}
+    var ch=text[i];
+    if(inStr){
+      if(esc){esc=false;}
+      else if(ch==='\\'){esc=true;}
+      else if(ch==='"'){inStr=false;}
+      continue;
+    }
+    if(ch==='"'){inStr=true;continue;}
+    if(ch==='{'){if(depth===0)start=i;depth++;}
+    else if(ch==='}'&&depth>0){depth--;if(depth===0&&start!==-1)return text.slice(start,i+1);}
   }
+  return null;
+}
+
+// AI responses frequently contain a literal newline/tab inside a string value (instead of an escaped
+// \n), which breaks JSON.parse outright. Walks the string char-by-char and escapes control characters
+// that appear inside quoted values, leaving everything outside strings untouched.
+function sanitizeJSONControlChars(s){
+  var out='',inStr=false,esc=false;
+  for(var i=0;i<s.length;i++){
+    var ch=s[i];
+    if(inStr){
+      if(esc){out+=ch;esc=false;continue;}
+      if(ch==='\\'){out+=ch;esc=true;continue;}
+      if(ch==='"'){inStr=false;out+=ch;continue;}
+      var code=ch.charCodeAt(0);
+      if(code===10){out+='\\n';continue;}
+      if(code===13){out+='\\r';continue;}
+      if(code===9){out+='\\t';continue;}
+      if(code<0x20)continue; // drop other stray control chars
+      out+=ch;
+      continue;
+    }
+    if(ch==='"'){inStr=true;}
+    out+=ch;
+  }
+  return out;
+}
+
+// Last-resort fallback when the object still won't parse (e.g. an unescaped quote deep inside one
+// field). Pulls out individual "key": value pairs with a regex instead of losing the whole listing —
+// good enough to rescue title/price/grade even if description_html is malformed.
+function regexFallbackParse(s){
+  var result={},found=false;
+  var re=/"([a-zA-Z0-9_]+)"\s*:\s*(?:"((?:[^"\\]|\\.)*)"|(-?\d+(?:\.\d+)?)|(true|false|null))/g;
+  var m;
+  while((m=re.exec(s))!==null){
+    found=true;
+    var key=m[1];
+    if(m[2]!==undefined){try{result[key]=JSON.parse('"'+m[2]+'"');}catch(e){result[key]=m[2];}}
+    else if(m[3]!==undefined)result[key]=parseFloat(m[3]);
+    else if(m[4]!==undefined)result[key]=(m[4]==='true')?true:(m[4]==='false'?false:null);
+  }
+  return found?result:null;
+}
+
+// Resilient JSON extraction for AI responses: strips markdown code fences, locates the outermost
+// JSON object, and if a straight JSON.parse fails, sanitizes control characters and retries, then
+// falls back to pulling out individual key/value pairs with regex rather than returning nothing.
+function extractJSON(text){
+  if(!text)return null;
+  var raw=String(text);
+
+  var fenced=raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  var candidate=fenced?fenced[1]:raw;
+
+  var slice=findOutermostObject(candidate)||findOutermostObject(raw);
+  if(!slice)return null;
+
+  try{return JSON.parse(slice);}catch(e){}
+
+  var sanitized=sanitizeJSONControlChars(slice);
+  try{return JSON.parse(sanitized);}catch(e2){
+    console.log('[EXTRACTJSON] JSON.parse failed after sanitize:',e2.message);
+    console.log('[EXTRACTJSON] Raw text (truncated):',raw.slice(0,2000));
+  }
+
+  var fallback=regexFallbackParse(sanitized);
+  if(fallback){console.log('[EXTRACTJSON] Recovered via regex fallback');return fallback;}
+
   return null;
 }
 
