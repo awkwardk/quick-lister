@@ -140,19 +140,51 @@ function renderThumbs(){
   });
 }
 
+// Reads one file and downscales/recompresses it via an offscreen canvas (max 1400px on the long
+// edge, JPEG q0.82) so multi-photo batches stay small over cellular. Resolves with base64 (never
+// rejects) so one bad file in a batch can't take out the rest — falls back to the uncompressed
+// read if the image fails to decode or canvas processing throws.
+function readAndCompressImage(file){
+  return new Promise(function(resolve){
+    var fr=new FileReader();
+    fr.onload=function(){
+      var rawResult=String(fr.result||'');
+      var rawB64=(function(){var c=rawResult.indexOf(',');return c>=0?rawResult.slice(c+1):rawResult;})();
+      var img=new Image();
+      img.onload=function(){
+        try{
+          var maxDim=1400;
+          var w=img.naturalWidth||img.width||1,h=img.naturalHeight||img.height||1;
+          var scale=Math.min(1,maxDim/Math.max(w,h));
+          var outW=Math.max(1,Math.round(w*scale));
+          var outH=Math.max(1,Math.round(h*scale));
+          var canvas=document.createElement('canvas');
+          canvas.width=outW;canvas.height=outH;
+          var ctx=canvas.getContext('2d');
+          ctx.drawImage(img,0,0,outW,outH);
+          var dataUrl=canvas.toDataURL('image/jpeg',0.82);
+          var c=dataUrl.indexOf(',');
+          resolve(c>=0?dataUrl.slice(c+1):rawB64);
+        }catch(e){resolve(rawB64);}
+      };
+      img.onerror=function(){resolve(rawB64);};
+      img.src=rawResult;
+    };
+    fr.onerror=function(){resolve(null);};
+    fr.readAsDataURL(file);
+  });
+}
+
 function addGalleryPhotos(input){
   var files=input.files;
   if(!files||!files.length)return;
   var arr=[];for(var i=0;i<files.length;i++)arr.push(files[i]);
-  arr.forEach(function(file){
-    var fr=new FileReader();
-    fr.onload=function(){
-      var v=String(fr.result||'');
-      var c=v.indexOf(',');
-      photoB64s.push(c>=0?v.slice(c+1):v);
-      renderThumbs();
-    };
-    fr.readAsDataURL(file);
+  // Promise.all's results array is index-matched to the input array regardless of which file
+  // finishes reading/compressing first, so the operator's original selection order (hero photo
+  // first) is always preserved — a plain forEach+FileReader would race and could scramble it.
+  Promise.all(arr.map(readAndCompressImage)).then(function(results){
+    results.forEach(function(b64){if(b64)photoB64s.push(b64);});
+    renderThumbs();
   });
   input.value='';
 }
@@ -568,7 +600,7 @@ function runGeneration(itemId,photos,grade,notes,brandModel,tag){
       visionText='The seller identifies this item as: '+bm+'\nUse this as your primary identifier. Confirm from the photos and add any additional details visible.\n'+visionText;
     }
 
-    callAI({system:'You are an expert electronics appraiser. Identify the item precisely from these photos. Return ONLY a JSON object, no markdown.',text:visionText,images:(photos||[]).slice(0,5),maxTokens:400,useSearch:false},function(err,txt1){
+    callAI({system:'You are an expert electronics appraiser. Identify the item precisely from these photos. Return ONLY a JSON object, no markdown.',text:visionText,images:(photos||[]).slice(0,10),maxTokens:400,useSearch:false},function(err,txt1){
       try{
         if(err){console.log('['+tag+'] itemId '+itemId+' failed: vision step -',err.message);updateListingRecord(itemId,{status:'failed',error:'Vision step failed'});return;}
         var vd=extractJSON(txt1)||{item_name:'Unknown item'};
