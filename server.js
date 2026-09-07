@@ -363,7 +363,9 @@ function extractText(c){return(c||[]).filter(function(b){return b.type==='text';
 function callGemini(params,callback){
   var parts=[{text:params.text||''}];
   (params.images||[]).forEach(function(b64){parts.push({inline_data:{mime_type:'image/jpeg',data:b64}});});
-  var generationConfig={maxOutputTokens:params.maxTokens||1500};
+  // thinkingBudget:0 disables Gemini 2.5 Flash's default thinking mode, which otherwise prepends an
+  // internal-reasoning part (thought:true) ahead of the actual answer and breaks JSON parsing.
+  var generationConfig={maxOutputTokens:params.maxTokens||1500,thinkingConfig:{thinkingBudget:0}};
   // response_mime_type forces strict JSON output, which is the biggest lever against "could not parse
   // listing" errors — but the Gemini API rejects it when the google_search tool is attached, so it can
   // only be forced on the tool-free (vision) call. The search call still asks for JSON via the prompt
@@ -377,10 +379,12 @@ function callGemini(params,callback){
     if(status!==200)console.log('[GEMINI] Error:',data.slice(0,300));
     try{
       var j=JSON.parse(data);
-      var cand=(j.candidates&&j.candidates[0])||null;
-      var txt=(cand&&cand.content&&cand.content.parts)?cand.content.parts.filter(function(p){return p.text;}).map(function(p){return p.text;}).join(''):'';
-      if(!txt){callback(new Error('Empty Gemini response'));return;}
-      callback(null,txt);
+      var respParts=(j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts)||[];
+      // Even with thinking disabled, filter out any thought:true parts defensively so extractJSON
+      // never sees the model's internal reasoning monologue instead of the final JSON answer.
+      var answerText=respParts.filter(function(p){return !p.thought;}).map(function(p){return p.text||'';}).join('');
+      if(!answerText){callback(new Error('Empty Gemini response'));return;}
+      callback(null,answerText);
     }catch(e){callback(e);}
   });
 }
@@ -603,7 +607,8 @@ function runGeneration(itemId,photos,grade,notes,brandModel,tag){
     callAI({system:'You are an expert electronics appraiser. Identify the item precisely from these photos. Return ONLY a JSON object, no markdown.',text:visionText,images:(photos||[]).slice(0,10),maxTokens:400,useSearch:false},function(err,txt1){
       try{
         if(err){console.log('['+tag+'] itemId '+itemId+' failed: vision step -',err.message);updateListingRecord(itemId,{status:'failed',error:'Vision step failed'});return;}
-        var vd=extractJSON(txt1)||{item_name:'Unknown item'};
+        var vd=extractJSON(txt1);
+        if(!vd){console.log('[EXTRACTJSON FAIL] Raw text:',(txt1||'').slice(0,500));vd={item_name:'Unknown item'};}
         var itemName=bm?bm:(vd.item_name||'Unknown item');
 
         var pricingSystemLines=[
@@ -634,7 +639,12 @@ function runGeneration(itemId,photos,grade,notes,brandModel,tag){
           try{
             if(err2){console.log('['+tag+'] itemId '+itemId+' failed: pricing step -',err2.message);updateListingRecord(itemId,{status:'failed',error:'Generation failed'});return;}
             var result=extractJSON(txt2);
-            if(!result||!result.title){console.log('['+tag+'] itemId '+itemId+' failed: could not parse listing');updateListingRecord(itemId,{status:'failed',error:'Could not parse listing'});return;}
+            if(!result||!result.title){
+              console.log('['+tag+'] itemId '+itemId+' failed: could not parse listing');
+              console.log('[EXTRACTJSON FAIL] Raw text:',(txt2||'').slice(0,500));
+              updateListingRecord(itemId,{status:'failed',error:'Could not parse listing'});
+              return;
+            }
             var finalGrade=gradeProvided;
             if(!finalGrade){
               var deduced=(result.condition_grade||'').toString().trim().toUpperCase().charAt(0);
