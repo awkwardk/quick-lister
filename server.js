@@ -583,6 +583,19 @@ function sendJSON(res,code,obj){res.writeHead(code,{'Content-Type':'application/
 // Patch a listing record (by itemId) in listings.json. Best-effort, never throws.
 function updateListingRecord(itemId,patch){try{var ls=loadListings();for(var i=0;i<ls.length;i++){if(ls[i].itemId===itemId){for(var k in patch){if(Object.prototype.hasOwnProperty.call(patch,k))ls[i][k]=patch[k];}break;}}saveListings(ls);}catch(e){console.log('[GEN] record update error:',e.message);}}
 
+// Parses a price that may come back as a number, a "$95.00"-style string, a range like "95-100",
+// or (via the key-alias fallbacks in runGeneration) under a different field name than expected.
+// Strips non-digit characters and extracts the leading numeric value; only falls back to the
+// given default when no valid number can be found at all — not just because the shape was odd.
+function parsePrice(val,fallback){
+  if(typeof val==='number'&&isFinite(val))return Math.round(val);
+  if(val==null)return fallback;
+  var m=String(val).match(/-?\d+(\.\d+)?/);
+  if(!m)return fallback;
+  var n=parseFloat(m[0]);
+  return isFinite(n)?Math.round(n):fallback;
+}
+
 // Shared background two-step Claude pipeline (same prompts as /api/generate-listing). Fire-and-forget:
 // updates the listing record to status 'complete' or 'failed'. brandModel, when provided, is used as the
 // primary identifier in both steps. tag is 'UPLOAD' or 'REGEN' for logging. Never crashes the server.
@@ -619,7 +632,9 @@ function runGeneration(itemId,photos,grade,notes,brandModel,tag){
           'Clean up raw operator notes into professional copy regardless of format.',
           'No pricing context in buyer-facing description.',
           'Include serial number when provided.',
-          'The title, brand, model, and condition box must strictly reflect what the operator stated in their notes — verify against the photos but never contradict the operator\'s stated item identity.'
+          'The title, brand, model, and condition box must strictly reflect what the operator stated in their notes — verify against the photos but never contradict the operator\'s stated item identity.',
+          'PRICING FORMAT: "suggested_price", "accept_price", and "decline_price" MUST be raw integer numbers with NO dollar signs and NO decimal places (e.g., 95, not "$95.00").',
+          'LOT & BUNDLE PRICING: If the title or item notes indicate a lot or bundle (e.g., "Lot of 10"), the suggested_price MUST reflect the total asking price for the entire lot/bundle, NOT the price per individual piece.'
         ];
         var jsonShape;
         if(gradeProvided){
@@ -650,7 +665,14 @@ function runGeneration(itemId,photos,grade,notes,brandModel,tag){
               var deduced=(result.condition_grade||'').toString().trim().toUpperCase().charAt(0);
               finalGrade=gradeNames[deduced]?deduced:'B';
             }
-            updateListingRecord(itemId,{title:result.title,condition_box:(result.condition_box!=null?result.condition_box:'See photos.'),description_html:(result.description_html!=null?result.description_html:'<p>'+itemName+'</p>'),suggested_price:(result.suggested_price!=null?result.suggested_price:0),accept_price:(result.accept_price!=null?result.accept_price:0),decline_price:(result.decline_price!=null?result.decline_price:0),price_note:(result.price_note!=null?result.price_note:''),grade:finalGrade,status:'complete',error:null});
+            // Robust against "$95.00"-style strings and the AI using a slightly different key name
+            // (list_price/price, min_price/auto_accept, floor_price/auto_decline) instead of the
+            // exact field asked for — only falls back to a hardcoded default when nothing usable
+            // was returned under any of those names.
+            var suggestedPrice=parsePrice(result.suggested_price||result.list_price||result.price,45);
+            var acceptPrice=parsePrice(result.accept_price||result.min_price||result.auto_accept,Math.round(suggestedPrice*0.8));
+            var declinePrice=parsePrice(result.decline_price||result.floor_price||result.auto_decline,Math.round(suggestedPrice*0.65));
+            updateListingRecord(itemId,{title:result.title,condition_box:(result.condition_box!=null?result.condition_box:'See photos.'),description_html:(result.description_html!=null?result.description_html:'<p>'+itemName+'</p>'),suggested_price:suggestedPrice,accept_price:acceptPrice,decline_price:declinePrice,price_note:(result.price_note!=null?result.price_note:''),grade:finalGrade,status:'complete',error:null});
             console.log('['+tag+'] itemId '+itemId+' '+doneWord+' successfully (grade '+finalGrade+')');
           }catch(e){console.log('['+tag+'] itemId '+itemId+' failed:',e.message);updateListingRecord(itemId,{status:'failed',error:'Server error'});}
         });
