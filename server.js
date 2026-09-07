@@ -625,26 +625,44 @@ function runGeneration(itemId,photos,grade,notes,brandModel,tag){
         var itemName=bm?bm:(vd.item_name||'Unknown item');
 
         var pricingSystemLines=[
-          'You are an experienced eBay seller writing a listing for a personal resale account.',
+          'You are an expert eBay pricing analyst and experienced eBay seller writing a listing for a personal resale account, specializing in secondary-market electronics and wholesale lots.',
           'Search eBay completed/sold listings for accurate current pricing.',
-          'Pricing: list just below mid-range of recent comps.',
+          '',
+          'CRITICAL PRICING & ARITHMETIC RULES:',
+          '1. SINGLE-UNIT REALITY CHECK:',
+          '   - First, determine the realistic eBay SOLD price for ONE single unit in this exact condition (not inflated active asking prices).',
+          '2. LOT / MULTI-QUANTITY ARITHMETIC:',
+          '   - Check if the title or notes specify a quantity/lot (e.g., "Lot of 10", "Pack of 5", "Pair", "Set of 2").',
+          '   - If it is a SINGLE item:',
+          '     suggested_price = (realistic single sold comp).',
+          '   - If it is a LOT of N items:',
+          '     Wholesale lots MUST sell at a per-unit discount compared to individual retail units!',
+          '     a. Calculate: Single_Unit_Comp * N.',
+          '     b. Apply bulk discount: Multiply by 0.65 to 0.80.',
+          '     c. SANITY GUARDRAIL: The total suggested_price for a lot CAN NEVER exceed (Single_Unit_Comp * N).',
+          '     Example: If 1 charger sells for $12-$15, a lot of 10 sells for $85-$110 total, NEVER $450!',
+          '3. AUTO-OFFER FORMULA:',
+          '   - suggested_price: realistic market listing price (integer).',
+          '   - accept_price: Math.round(suggested_price * 0.80) -> auto-accept offers at 80%.',
+          '   - decline_price: Math.round(suggested_price * 0.65) -> auto-decline offers below 65%.',
+          '',
           'Write honest, specific, confident copy. No overselling or underselling.',
           'Clean up raw operator notes into professional copy regardless of format.',
           'No pricing context in buyer-facing description.',
           'Include serial number when provided.',
           'The title, brand, model, and condition box must strictly reflect what the operator stated in their notes — verify against the photos but never contradict the operator\'s stated item identity.',
           'PRICING FORMAT: "suggested_price", "accept_price", and "decline_price" MUST be raw integer numbers with NO dollar signs and NO decimal places (e.g., 95, not "$95.00").',
-          'LOT & BUNDLE PRICING: If the title or item notes indicate a lot or bundle (e.g., "Lot of 10"), the suggested_price MUST reflect the total asking price for the entire lot/bundle, NOT the price per individual piece.'
+          'price_note must be a 1-2 sentence breakdown explicitly stating: the single-unit sold range, the lot multiplier (if any), and the bulk discount applied.'
         ];
         var jsonShape;
         if(gradeProvided){
           pricingSystemLines.push('Grade: A=Like New, B=Good Normal Used, C=Fair Heavy Wear, D=Parts/Untested');
-          jsonShape='{"title":"under 80 chars","condition_box":"2-3 sentences","description_html":"full HTML with specs table","suggested_price":45,"accept_price":36,"decline_price":28,"price_note":"internal context"}';
+          jsonShape='{"title":"under 80 chars","condition_box":"2-3 sentences","description_html":"full HTML with specs table","suggested_price":45,"accept_price":36,"decline_price":29,"price_note":"Single unit sells $12-15; lot of 10 x 0.75 bulk discount = 45 total"}';
         }else{
           pricingSystemLines.push('No condition grade was provided by the operator. Deduce it yourself from the operator notes and the visible photo condition: A=Like New/Open Box, B=Good-Normal Used, C=Fair-Heavy Wear, D=Parts/Untested. Return your choice as "condition_grade" (exactly one letter: A, B, C, or D) in the JSON.');
-          jsonShape='{"title":"under 80 chars","condition_box":"2-3 sentences","description_html":"full HTML with specs table","condition_grade":"A","suggested_price":45,"accept_price":36,"decline_price":28,"price_note":"internal context"}';
+          jsonShape='{"title":"under 80 chars","condition_box":"2-3 sentences","description_html":"full HTML with specs table","condition_grade":"A","suggested_price":45,"accept_price":36,"decline_price":29,"price_note":"Single unit sells $12-15; lot of 10 x 0.75 bulk discount = 45 total"}';
         }
-        pricingSystemLines.push('Return ONLY this JSON no markdown:');
+        pricingSystemLines.push('OUTPUT JSON FORMAT: Return ONLY this raw JSON, no markdown:');
         pricingSystemLines.push(jsonShape);
         var pricingSystem=pricingSystemLines.join('\n');
 
