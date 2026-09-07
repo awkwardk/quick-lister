@@ -596,6 +596,21 @@ function parsePrice(val,fallback){
   return isFinite(n)?Math.round(n):fallback;
 }
 
+// Normalizes the AI's freeform condition_grade text to one of the four canonical labels. Returns
+// '' (unknown) rather than guessing "Good" when the response doesn't clearly match anything — a
+// silent default to a decent-sounding grade is exactly the bug this replaces.
+function normalizeGrade(val){
+  var s=(val==null?'':String(val)).trim().toLowerCase();
+  if(!s)return '';
+  var CANONICAL=['Like New','Good','Fair/Heavy Wear','For Parts'];
+  for(var i=0;i<CANONICAL.length;i++){if(s===CANONICAL[i].toLowerCase())return CANONICAL[i];}
+  if(/(parts|not working|non.?working|dead|broken)/.test(s))return 'For Parts';
+  if(/(heavy wear|rough|fair|damaged|scratched|dented|cracked|untested)/.test(s))return 'Fair/Heavy Wear';
+  if(/(like new|open box|mint)/.test(s))return 'Like New';
+  if(/good/.test(s))return 'Good';
+  return '';
+}
+
 // Shared background two-step Claude pipeline (same prompts as /api/generate-listing). Fire-and-forget:
 // updates the listing record to status 'complete' or 'failed'. brandModel, when provided, is used as the
 // primary identifier in both steps. tag is 'UPLOAD' or 'REGEN' for logging. Never crashes the server.
@@ -603,8 +618,6 @@ function runGeneration(itemId,photos,grade,notes,brandModel,tag){
   try{
     tag=tag||'UPLOAD';
     var doneWord=(tag==='REGEN')?'regenerated':'generated';
-    var gradeNames={A:'Like New / Open Box',B:'Good - Normal Used',C:'Fair - Heavy Wear',D:'Parts/Untested'};
-    var gradeProvided=(grade&&gradeNames[grade])?grade:'';
     var bm=(brandModel&&String(brandModel).trim())?String(brandModel).trim():'';
     var opNotes=(notes&&String(notes).trim())?String(notes).trim():'';
 
@@ -652,22 +665,21 @@ function runGeneration(itemId,photos,grade,notes,brandModel,tag){
           'Include serial number when provided.',
           'The title, brand, model, and condition box must strictly reflect what the operator stated in their notes — verify against the photos but never contradict the operator\'s stated item identity.',
           'PRICING FORMAT: "suggested_price", "accept_price", and "decline_price" MUST be raw integer numbers with NO dollar signs and NO decimal places (e.g., 95, not "$95.00").',
-          'price_note must be a 1-2 sentence breakdown explicitly stating: the single-unit sold range, the lot multiplier (if any), and the bulk discount applied.'
+          'price_note must be a 1-2 sentence breakdown explicitly stating: the single-unit sold range, the lot multiplier (if any), and the bulk discount applied.',
+          '',
+          'CONDITION & GRADING RULES:',
+          '- The operator\'s spoken/written notes are the absolute ground truth regarding item condition, defects, testing status, and wear.',
+          '- If the operator states an item is in "rough condition", "heavy wear", "scratched/dented", "untested", or "for parts", you MUST classify it accordingly (e.g. Fair / Heavy Wear or For Parts / Not Working).',
+          '- NEVER describe an item as "Good" or "Normal used condition" if the operator notes indicate heavy wear or defects.',
+          '- Populate "condition_box" with 2-3 concise, honest sentences detailing the exact wear, flaws, or test results mentioned by the operator and visible in photos.',
+          '- Independently determine and return "condition_grade": exactly one of "Like New", "Good", "Fair/Heavy Wear", "For Parts" — based on the operator notes and photos, never a default assumption.'
         ];
-        var jsonShape;
-        if(gradeProvided){
-          pricingSystemLines.push('Grade: A=Like New, B=Good Normal Used, C=Fair Heavy Wear, D=Parts/Untested');
-          jsonShape='{"title":"under 80 chars","condition_box":"2-3 sentences","description_html":"full HTML with specs table","suggested_price":45,"accept_price":36,"decline_price":29,"price_note":"Single unit sells $12-15; lot of 10 x 0.75 bulk discount = 45 total"}';
-        }else{
-          pricingSystemLines.push('No condition grade was provided by the operator. Deduce it yourself from the operator notes and the visible photo condition: A=Like New/Open Box, B=Good-Normal Used, C=Fair-Heavy Wear, D=Parts/Untested. Return your choice as "condition_grade" (exactly one letter: A, B, C, or D) in the JSON.');
-          jsonShape='{"title":"under 80 chars","condition_box":"2-3 sentences","description_html":"full HTML with specs table","condition_grade":"A","suggested_price":45,"accept_price":36,"decline_price":29,"price_note":"Single unit sells $12-15; lot of 10 x 0.75 bulk discount = 45 total"}';
-        }
+        var jsonShape='{"title":"under 80 chars","condition_box":"2-3 sentences","description_html":"full HTML with specs table","condition_grade":"Good","suggested_price":45,"accept_price":36,"decline_price":29,"price_note":"Single unit sells $12-15; lot of 10 x 0.75 bulk discount = 45 total"}';
         pricingSystemLines.push('OUTPUT JSON FORMAT: Return ONLY this raw JSON, no markdown:');
         pricingSystemLines.push(jsonShape);
         var pricingSystem=pricingSystemLines.join('\n');
 
-        var gradeLine=gradeProvided?('Grade: '+gradeProvided+' ('+gradeNames[gradeProvided]+')'):'Grade: Not provided — deduce from operator notes and photo condition.';
-        var pricingText='Item: '+itemName+'\n'+gradeLine+'\nSerial: '+(vd.serial_number||'Not visible')+'\nIncludes: '+(vd.includes||'See photos')+'\nCondition: '+(vd.condition_notes||'See photos')+'\nOperator notes: '+(opNotes||'None')+'\n\nSearch eBay sold listings and generate listing JSON.';
+        var pricingText='Item: '+itemName+'\nSerial: '+(vd.serial_number||'Not visible')+'\nIncludes: '+(vd.includes||'See photos')+'\nCondition: '+(vd.condition_notes||'See photos')+'\nOperator notes: '+(opNotes||'None')+'\n\nSearch eBay sold listings and generate listing JSON.';
         callAI({system:pricingSystem,text:pricingText,images:[],maxTokens:1500,useSearch:true},function(err2,txt2){
           try{
             if(err2){console.log('['+tag+'] itemId '+itemId+' failed: pricing step -',err2.message);updateListingRecord(itemId,{status:'failed',error:'Generation failed'});return;}
@@ -678,11 +690,10 @@ function runGeneration(itemId,photos,grade,notes,brandModel,tag){
               updateListingRecord(itemId,{status:'failed',error:'Could not parse listing'});
               return;
             }
-            var finalGrade=gradeProvided;
-            if(!finalGrade){
-              var deduced=(result.condition_grade||'').toString().trim().toUpperCase().charAt(0);
-              finalGrade=gradeNames[deduced]?deduced:'B';
-            }
+            // No hardcoded grade default — the AI independently determines condition_grade from the
+            // operator's notes and photos every time. If it doesn't return anything recognizable,
+            // finalGrade stays '' (unknown) rather than silently implying "Good" condition.
+            var finalGrade=normalizeGrade(result.condition_grade);
             // Robust against "$95.00"-style strings and the AI using a slightly different key name
             // (list_price/price, min_price/auto_accept, floor_price/auto_decline) instead of the
             // exact field asked for — only falls back to a hardcoded default when nothing usable
@@ -691,7 +702,7 @@ function runGeneration(itemId,photos,grade,notes,brandModel,tag){
             var acceptPrice=parsePrice(result.accept_price||result.min_price||result.auto_accept,Math.round(suggestedPrice*0.8));
             var declinePrice=parsePrice(result.decline_price||result.floor_price||result.auto_decline,Math.round(suggestedPrice*0.65));
             updateListingRecord(itemId,{title:result.title,condition_box:(result.condition_box!=null?result.condition_box:'See photos.'),description_html:(result.description_html!=null?result.description_html:'<p>'+itemName+'</p>'),suggested_price:suggestedPrice,accept_price:acceptPrice,decline_price:declinePrice,price_note:(result.price_note!=null?result.price_note:''),grade:finalGrade,status:'complete',error:null});
-            console.log('['+tag+'] itemId '+itemId+' '+doneWord+' successfully (grade '+finalGrade+')');
+            console.log('['+tag+'] itemId '+itemId+' '+doneWord+' successfully'+(finalGrade?(' (grade '+finalGrade+')'):''));
           }catch(e){console.log('['+tag+'] itemId '+itemId+' failed:',e.message);updateListingRecord(itemId,{status:'failed',error:'Server error'});}
         });
       }catch(e){console.log('['+tag+'] itemId '+itemId+' failed:',e.message);updateListingRecord(itemId,{status:'failed',error:'Server error'});}
@@ -825,7 +836,7 @@ const server=http.createServer(function(req,res){
         if(rphotos.length===0){console.log('[REGEN] itemId '+rid+' failed: photo files missing');sendJSON(res,400,{success:false,error:'Photo files missing on disk'});return;}
         var rbm=(body.brand_model&&String(body.brand_model).trim())?String(body.brand_model).trim():((rrec.brand_model&&String(rrec.brand_model).trim())?String(rrec.brand_model).trim():'');
         var rnotes=(body.notes&&String(body.notes).trim())?String(body.notes).trim():(rrec.notes||'');
-        var rgrade=rrec.grade||'B';
+        var rgrade=rrec.grade||'';
         updateListingRecord(rid,{status:'processing',brand_model:rbm,notes:rnotes,error:null});
         console.log('[REGEN] itemId '+rid+' queued for background generation');
         sendJSON(res,202,{success:true,itemId:rid,status:'processing'});
@@ -842,7 +853,7 @@ const server=http.createServer(function(req,res){
       try{
         if(uperr||!uparsed){sendJSON(res,400,{success:false,error:'Bad request'});return;}
         var uphotos=uparsed.photos||[];
-        var ugrade=uparsed.grade||'B';
+        var ugrade=(uparsed.grade&&String(uparsed.grade).trim())?String(uparsed.grade).trim():'';
         var unotes=uparsed.notes||'';
         var ubm=(uparsed.brand_model&&String(uparsed.brand_model).trim())?String(uparsed.brand_model).trim():'';
         if(!uphotos.length){sendJSON(res,400,{success:false,error:'No photos provided'});return;}
