@@ -57,9 +57,42 @@ body{display:flex;flex-direction:column;}
 .btn-primary.uploading{background:var(--border);color:var(--text);cursor:wait;}
 .btn-spinner{display:inline-block;width:16px;height:16px;margin-right:8px;vertical-align:-3px;border:2px solid rgba(242,242,242,0.3);border-top-color:var(--text);border-radius:50%;animation:btnspin 0.7s linear infinite;}
 @keyframes btnspin{to{transform:rotate(360deg);}}
-.gallery-btn{display:block;text-align:center;border:1px dashed var(--border);border-radius:8px;padding:16px;cursor:pointer;}
-.gallery-btn .gb-title{font-family:var(--display);font-size:1.1rem;letter-spacing:0.05em;color:var(--text);}
-.gallery-btn .gb-sub{font-family:var(--mono);font-size:0.6rem;color:var(--muted);letter-spacing:0.06em;margin-top:4px;}
+.photo-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.gallery-btn,.cam-open-btn{display:block;width:100%;text-align:center;border:1px dashed var(--border);border-radius:8px;padding:16px 8px;cursor:pointer;background:none;color:var(--text);font:inherit;}
+.gallery-btn.primary,.cam-open-btn.primary{border:1px solid var(--accent);background:rgba(232,255,0,0.06);}
+.gallery-btn .gb-title,.cam-open-btn .gb-title{display:block;font-family:var(--display);font-size:1.1rem;letter-spacing:0.05em;color:var(--text);}
+.gallery-btn .gb-sub,.cam-open-btn .gb-sub{display:block;font-family:var(--mono);font-size:0.6rem;color:var(--muted);letter-spacing:0.06em;margin-top:4px;}
+.mode-row{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap;}
+.mode-lbl{font-family:var(--mono);font-size:0.6rem;letter-spacing:0.08em;color:var(--muted);text-transform:uppercase;margin-right:2px;}
+.mode-btn{background:var(--surface);color:var(--muted);border:1px solid var(--border);border-radius:100px;padding:6px 12px;font-family:var(--mono);font-size:0.62rem;letter-spacing:0.04em;cursor:pointer;}
+.mode-btn.on{color:#000;background:var(--accent);border-color:var(--accent);}
+.cam-overlay{position:fixed;inset:0;z-index:100;background:#000;display:none;flex-direction:column;overflow-y:auto;}
+.cam-top{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;flex-shrink:0;}
+.cam-count{font-family:var(--mono);font-size:0.75rem;letter-spacing:0.06em;color:var(--text);text-transform:uppercase;}
+.cam-done{background:var(--accent);color:#000;border:none;border-radius:8px;padding:10px 22px;font-family:var(--display);font-size:1.1rem;letter-spacing:0.06em;cursor:pointer;}
+.cam-stage{flex-shrink:0;padding:0 0 4px;}
+.cam-frame{--cam-size:min(75vh,max(140px,calc(100vh - 250px)));aspect-ratio:1 / 1;width:100%;max-width:var(--cam-size);max-height:var(--cam-size);margin:0 auto;overflow:hidden;position:relative;background:#111;}
+@supports (height:100dvh){.cam-frame{--cam-size:min(75dvh,max(140px,calc(100dvh - 250px)));}}
+.cam-frame video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+.cam-frame.macro-on::after{content:"";position:absolute;inset:0;border:4px solid #ffb300;pointer-events:none;z-index:2;}
+.cam-flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:2;}
+.cam-flash.go{animation:camflash 0.18s ease-out;}
+@keyframes camflash{0%{opacity:0.7;}100%{opacity:0;}}
+.cam-msg{position:absolute;left:12px;right:12px;bottom:12px;z-index:3;text-align:center;font-family:var(--mono);font-size:0.7rem;letter-spacing:0.04em;color:var(--text);background:rgba(0,0,0,0.6);border-radius:8px;padding:8px 10px;}
+.cam-msg:empty{display:none;}
+.cam-macro{position:absolute;top:10px;right:10px;z-index:3;background:rgba(0,0,0,0.6);color:var(--text);border:1px solid rgba(255,255,255,0.35);border-radius:100px;padding:7px 14px;font-family:var(--mono);font-size:0.68rem;letter-spacing:0.06em;text-transform:uppercase;cursor:pointer;}
+.cam-macro.on{background:#ffb300;color:#000;border-color:#ffb300;}
+.cam-macro.na{opacity:0.5;cursor:default;}
+.cam-bottom{background:#000;padding:10px 16px 16px;margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:12px;flex-shrink:0;}
+.cam-reel{display:flex;gap:8px;overflow-x:auto;width:100%;min-height:58px;padding:4px 2px;-webkit-overflow-scrolling:touch;}
+.cam-reel:empty::before{content:"No photos yet";font-family:var(--mono);font-size:0.65rem;color:var(--muted);align-self:center;}
+.reel-item{position:relative;flex:0 0 auto;width:52px;height:52px;}
+.reel-item img{width:52px;height:52px;object-fit:cover;border-radius:6px;border:1px solid var(--border);}
+.reel-item .rm{position:absolute;top:-5px;right:-5px;width:18px;height:18px;border-radius:50%;background:var(--red);color:#fff;font-size:11px;line-height:18px;text-align:center;cursor:pointer;font-weight:bold;}
+.cam-shutter{width:72px;height:72px;border-radius:50%;border:4px solid #fff;background:rgba(255,255,255,0.15);cursor:pointer;padding:0;position:relative;}
+.cam-shutter::after{content:"";position:absolute;inset:6px;border-radius:50%;background:#fff;}
+.cam-shutter:active::after{inset:9px;}
+.cam-shutter:disabled{opacity:0.35;cursor:default;}
 .photo-thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
 .photo-thumbs:empty{display:none;}
 .photo-thumb-wrap{position:relative;width:64px;height:64px;}
@@ -90,11 +123,22 @@ body{display:flex;flex-direction:column;}
 
   <div class="section-title">Photos</div>
   <div class="photo-thumbs" id="photoThumbs"></div>
-  <label for="galleryInput" class="gallery-btn">
-    <div class="gb-title">&#128193; Choose from Gallery</div>
-    <div class="gb-sub">Select or take multiple photos at once</div>
-  </label>
+  <div class="photo-actions">
+    <button type="button" class="cam-open-btn" id="camOpenBtn" onclick="openCamera()">
+      <span class="gb-title">&#128247; Open Camera</span>
+      <span class="gb-sub">Take photos back to back</span>
+    </button>
+    <label for="galleryInput" class="gallery-btn" id="galleryLabel">
+      <span class="gb-title">&#128193; Choose from Gallery</span>
+      <span class="gb-sub">Select several at once</span>
+    </label>
+  </div>
   <input type="file" id="galleryInput" accept="image/*" multiple onchange="addGalleryPhotos(this)" style="display:none;">
+  <div class="mode-row" role="group" aria-label="Default photo workflow">
+    <span class="mode-lbl">Default</span>
+    <button type="button" class="mode-btn" id="modeCam" aria-pressed="false" onclick="setPhotoMode('camera')">In-App Camera</button>
+    <button type="button" class="mode-btn" id="modeGal" aria-pressed="false" onclick="setPhotoMode('gallery')">Gallery / File Picker</button>
+  </div>
 
   <div class="section-title">Spoken / Written Notes</div>
   <div class="voice-row">
@@ -108,6 +152,26 @@ body{display:flex;flex-direction:column;}
     <div class="queued-flash" id="queuedFlash">&#10003; Queued &#8212; generating in background</div>
   </div>
 
+</div>
+
+<div class="cam-overlay" id="camOverlay" role="dialog" aria-modal="true" aria-label="Camera">
+  <div class="cam-top">
+    <div class="cam-count" id="camCount" aria-live="polite">0 photos taken</div>
+    <button type="button" class="cam-done" onclick="closeCamera()">Done</button>
+  </div>
+  <div class="cam-stage">
+    <div class="cam-frame" id="camFrame">
+      <video id="camVideo" autoplay playsinline muted></video>
+      <div class="cam-flash" id="camFlash"></div>
+      <button type="button" class="cam-macro na" id="camMacroBtn" aria-disabled="true" aria-pressed="false" onclick="toggleMacro()">Macro...</button>
+      <div class="cam-msg" id="camMsg"></div>
+    </div>
+  </div>
+  <div class="cam-bottom">
+    <div class="cam-reel" id="camReel"></div>
+    <button type="button" class="cam-shutter" id="camShutter" onclick="takePhoto()" aria-label="Take photo" disabled></button>
+  </div>
+  <canvas id="camCanvas" style="display:none;"></canvas>
 </div>
 
 <script>
@@ -140,6 +204,11 @@ function renderThumbs(){
   });
 }
 
+// Same output size/quality for gallery files and in-app camera shots, so both feed the identical
+// submit pipeline with identically-sized photos.
+var PHOTO_MAX_DIM=1400;
+var PHOTO_JPEG_Q=0.82;
+
 // Reads one file and downscales/recompresses it via an offscreen canvas (max 1400px on the long
 // edge, JPEG q0.82) so multi-photo batches stay small over cellular. Resolves with base64 (never
 // rejects) so one bad file in a batch can't take out the rest — falls back to the uncompressed
@@ -153,7 +222,7 @@ function readAndCompressImage(file){
       var img=new Image();
       img.onload=function(){
         try{
-          var maxDim=1400;
+          var maxDim=PHOTO_MAX_DIM;
           var w=img.naturalWidth||img.width||1,h=img.naturalHeight||img.height||1;
           var scale=Math.min(1,maxDim/Math.max(w,h));
           var outW=Math.max(1,Math.round(w*scale));
@@ -162,7 +231,7 @@ function readAndCompressImage(file){
           canvas.width=outW;canvas.height=outH;
           var ctx=canvas.getContext('2d');
           ctx.drawImage(img,0,0,outW,outH);
-          var dataUrl=canvas.toDataURL('image/jpeg',0.82);
+          var dataUrl=canvas.toDataURL('image/jpeg',PHOTO_JPEG_Q);
           var c=dataUrl.indexOf(',');
           resolve(c>=0?dataUrl.slice(c+1):rawB64);
         }catch(e){resolve(rawB64);}
@@ -188,6 +257,243 @@ function addGalleryPhotos(input){
   });
   input.value='';
 }
+
+// ---- In-app camera ------------------------------------------------------------------------
+// Shots are pushed straight into photoB64s (same base64-JPEG shape as gallery photos), so the
+// existing submitItem() upload/storage pipeline handles them with no special casing.
+var camStream=null;
+var camTrack=null;
+var camSession=[];
+var macroDetected=false;
+var macroSupported=false;
+var macroNative=false;
+var macroMinDist=null;
+var macroOn=false;
+var macroBusy=false;
+
+function lsGet(k){try{return window.localStorage.getItem(k);}catch(e){return null;}}
+function lsSet(k,v){try{window.localStorage.setItem(k,v);}catch(e){}}
+
+function cameraAvailable(){return !!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);}
+
+// Primary workflow preference: "camera" or "gallery". Defaults to the camera when the browser has
+// one; both paths stay available either way, the preference only decides which button leads.
+function getPhotoMode(){
+  var m=lsGet('ql_photo_mode');
+  if(m==='camera'||m==='gallery')return m;
+  return cameraAvailable()?'camera':'gallery';
+}
+function setPhotoMode(m){lsSet('ql_photo_mode',m);applyPhotoMode();}
+function applyPhotoMode(){
+  var m=getPhotoMode();
+  var camBtn=document.getElementById('camOpenBtn');
+  var galLbl=document.getElementById('galleryLabel');
+  camBtn.classList.toggle('primary',m==='camera');
+  galLbl.classList.toggle('primary',m==='gallery');
+  camBtn.style.order=(m==='camera')?'0':'1';
+  galLbl.style.order=(m==='gallery')?'0':'1';
+  var mc=document.getElementById('modeCam'),mg=document.getElementById('modeGal');
+  mc.classList.toggle('on',m==='camera');
+  mg.classList.toggle('on',m==='gallery');
+  mc.setAttribute('aria-pressed',m==='camera'?'true':'false');
+  mg.setAttribute('aria-pressed',m==='gallery'?'true':'false');
+}
+
+function setCamMsg(t){document.getElementById('camMsg').textContent=t||'';}
+
+function renderReel(){
+  var reel=document.getElementById('camReel');
+  reel.innerHTML='';
+  camSession.forEach(function(item){
+    var d=document.createElement('div');
+    d.className='reel-item';
+    var img=document.createElement('img');
+    img.src=item.thumb;
+    img.alt='';
+    var rm=document.createElement('div');
+    rm.className='rm';
+    rm.textContent='\\u00d7';
+    rm.onclick=function(){removeSessionPhoto(item);};
+    d.appendChild(img);d.appendChild(rm);
+    reel.appendChild(d);
+  });
+  reel.scrollLeft=reel.scrollWidth;
+  var n=camSession.length;
+  document.getElementById('camCount').textContent=n+' photo'+(n!==1?'s':'')+' taken';
+}
+
+function removeSessionPhoto(item){
+  var i=camSession.indexOf(item);
+  if(i>=0)camSession.splice(i,1);
+  var j=photoB64s.indexOf(item.b64);
+  if(j>=0)photoB64s.splice(j,1);
+  renderReel();
+}
+
+function renderMacro(){
+  var b=document.getElementById('camMacroBtn');
+  var f=document.getElementById('camFrame');
+  if(!macroSupported){
+    // Never show an active state without working hardware, whatever localStorage remembers.
+    macroOn=false;
+    b.textContent=macroDetected?'Macro N/A':'Macro...';
+    b.setAttribute('aria-disabled','true');
+    b.setAttribute('aria-pressed','false');
+    b.classList.add('na');
+    b.classList.remove('on');
+    f.classList.remove('macro-on');
+    return;
+  }
+  b.textContent=macroOn?'Macro ON':'Macro';
+  b.setAttribute('aria-disabled','false');
+  b.setAttribute('aria-pressed',macroOn?'true':'false');
+  b.classList.remove('na');
+  b.classList.toggle('on',macroOn);
+  f.classList.toggle('macro-on',macroOn);
+}
+
+// Reads what the camera can actually do, requests continuous autofocus where supported, and
+// decides whether Macro is available (native "macro" mode, or manual focus at focusDistance.min).
+function initFocus(){
+  macroDetected=true;
+  macroSupported=false;macroNative=false;macroMinDist=null;macroOn=false;
+  var sup={};
+  try{sup=navigator.mediaDevices.getSupportedConstraints()||{};}catch(e){}
+  var caps={};
+  try{if(camTrack&&camTrack.getCapabilities)caps=camTrack.getCapabilities()||{};}catch(e){}
+  var modes=caps.focusMode||null;
+  if(sup.focusMode&&camTrack&&(!modes||modes.indexOf('continuous')>=0)){
+    camTrack.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(function(){});
+  }
+  macroNative=!!(modes&&modes.indexOf('macro')>=0);
+  var fd=caps.focusDistance;
+  if(sup.focusMode&&modes&&modes.indexOf('manual')>=0&&fd&&typeof fd.min==='number')macroMinDist=fd.min;
+  macroSupported=macroNative||macroMinDist!==null;
+  renderMacro();
+  if(macroSupported&&lsGet('ql_macro')==='on')applyMacro(true);
+}
+
+// Tries native macro first, then manual focus at the nearest focusDistance. If the hardware
+// rejects every attempt the button drops to "Macro N/A" instead of pretending to be active.
+function applyMacro(on){
+  if(!camTrack||macroBusy)return;
+  macroBusy=true;
+  var attempts=[];
+  if(on){
+    if(macroNative)attempts.push({focusMode:'macro'});
+    if(macroMinDist!==null)attempts.push({focusMode:'manual',focusDistance:macroMinDist});
+  }else{
+    attempts.push({focusMode:'continuous'});
+  }
+  var finish=function(ok){
+    macroBusy=false;
+    if(on&&!ok){macroSupported=false;macroOn=false;}
+    else{macroOn=on&&ok;lsSet('ql_macro',macroOn?'on':'off');}
+    renderMacro();
+  };
+  var next=function(i){
+    if(i>=attempts.length){finish(false);return;}
+    camTrack.applyConstraints({advanced:[attempts[i]]}).then(function(){finish(true);}).catch(function(){next(i+1);});
+  };
+  next(0);
+}
+
+function toggleMacro(){
+  if(!macroSupported||!camTrack)return;
+  applyMacro(!macroOn);
+}
+
+function openCamera(){
+  camSession=[];
+  renderReel();
+  macroDetected=false;macroSupported=false;macroOn=false;
+  renderMacro();
+  document.getElementById('camShutter').disabled=true;
+  document.getElementById('camOverlay').style.display='flex';
+  startCamera();
+}
+
+function startCamera(){
+  var video=document.getElementById('camVideo');
+  if(!cameraAvailable()){
+    macroDetected=true;renderMacro();
+    setCamMsg('Camera is not available in this browser. Close this and use Choose from Gallery.');
+    return;
+  }
+  setCamMsg('Starting camera...');
+  // Ask for the biggest frame the sensor offers; the browser clamps ideal values to what exists.
+  var constraints={video:{facingMode:{ideal:'environment'},width:{ideal:4096},height:{ideal:4096}},audio:false};
+  navigator.mediaDevices.getUserMedia(constraints).then(function(stream){
+    if(document.getElementById('camOverlay').style.display==='none'){
+      stream.getTracks().forEach(function(t){t.stop();});
+      return;
+    }
+    camStream=stream;
+    camTrack=stream.getVideoTracks()[0]||null;
+    video.srcObject=stream;
+    video.onloadedmetadata=function(){document.getElementById('camShutter').disabled=false;};
+    var p=video.play();
+    if(p&&p.catch)p.catch(function(){});
+    setCamMsg('');
+    initFocus();
+  }).catch(function(e){
+    macroDetected=true;renderMacro();
+    var denied=e&&(e.name==='NotAllowedError'||e.name==='SecurityError');
+    setCamMsg(denied?'Camera permission was denied. Allow camera access, or close this and use Choose from Gallery.':'Could not start the camera. Close this and use Choose from Gallery.');
+  });
+}
+
+function stopCamera(){
+  if(camStream){camStream.getTracks().forEach(function(t){t.stop();});}
+  camStream=null;camTrack=null;
+  var video=document.getElementById('camVideo');
+  video.srcObject=null;
+  macroOn=false;macroBusy=false;
+}
+
+// WYSIWYG square capture: the viewfinder is a 1:1 box with object-fit:cover, so what is visible is
+// exactly the centered min(width,height) square of the frame. Crop that same square here.
+function takePhoto(){
+  var video=document.getElementById('camVideo');
+  var vw=video.videoWidth,vh=video.videoHeight;
+  if(!camStream||!vw||!vh)return;
+  var size=Math.min(vw,vh);
+  var sx=Math.round((vw-size)/2),sy=Math.round((vh-size)/2);
+  var out=Math.min(size,PHOTO_MAX_DIM);
+  var canvas=document.getElementById('camCanvas');
+  canvas.width=out;canvas.height=out;
+  var ctx=canvas.getContext('2d');
+  ctx.imageSmoothingEnabled=true;
+  ctx.imageSmoothingQuality='high';
+  ctx.drawImage(video,sx,sy,size,size,0,0,out,out);
+  var dataUrl=canvas.toDataURL('image/jpeg',PHOTO_JPEG_Q);
+  var c=dataUrl.indexOf(',');
+  var b64=c>=0?dataUrl.slice(c+1):'';
+  if(!b64)return;
+  var tc=document.createElement('canvas');
+  tc.width=96;tc.height=96;
+  tc.getContext('2d').drawImage(canvas,0,0,96,96);
+  photoB64s.push(b64);
+  camSession.push({b64:b64,thumb:tc.toDataURL('image/jpeg',0.6)});
+  renderReel();
+  var fl=document.getElementById('camFlash');
+  fl.classList.remove('go');
+  void fl.offsetWidth;
+  fl.classList.add('go');
+  try{if(navigator.vibrate)navigator.vibrate(25);}catch(e){}
+}
+
+function closeCamera(){
+  stopCamera();
+  document.getElementById('camOverlay').style.display='none';
+  camSession=[];
+  renderThumbs();
+}
+
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'&&document.getElementById('camOverlay').style.display==='flex')closeCamera();
+});
+window.addEventListener('pagehide',stopCamera);
 
 function acquireWakeLock(){if('wakeLock' in navigator){navigator.wakeLock.request('screen').then(function(wl){wakeLock=wl;}).catch(function(){});}}
 function releaseWakeLock(){if(wakeLock){wakeLock.release().catch(function(){});wakeLock=null;}}
@@ -326,6 +632,7 @@ function submitItem(){
 }
 
 window.addEventListener('load',function(){
+  applyPhotoMode();
   fetch('/api/listing-count').then(function(r){return r.json();}).then(function(d){
     savedCount=d.count||0;
     updateStatus();
