@@ -8,6 +8,16 @@ const PORT = process.env.PORT || 3000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+// gemini-2.5-flash is retired on 2026-12-01; Google then answers that id with
+// gemini-3.5-flash-lite. OpenRouter still lists google/gemini-2.5-flash (no
+// expiration date) but serves it through Google, so the same redirect applies.
+// The supported replacement slug is google/gemini-3.5-flash-lite, same text price.
+const GEMINI_MODEL_ID = 'gemini-3.5-flash-lite';
+const OPENROUTER_MODEL_ID = 'google/' + GEMINI_MODEL_ID;
+// thinkingBudget is not accepted on this model. MINIMAL is the lowest thinking_level
+// and the stand-in for the old budget of 0 (thinking cannot be fully disabled).
+// temperature, topP, and topK are ignored on this model and must not be sent.
+const GEMINI_THINKING_LEVEL = 'MINIMAL';
 const DATA_DIR = process.env.DATA_DIR || '/data/quick-lister-data';
 const LISTINGS_FILE = path.join(DATA_DIR, 'listings.json');
 const PHOTOS_DIR = path.join(DATA_DIR, 'photos');
@@ -667,29 +677,66 @@ function extractText(c){return(c||[]).filter(function(b){return b.type==='text';
 // Every caller normalizes to callback(err, plainTextResponse) so downstream
 // code (extractJSON etc) does not need to know which provider answered.
 
-function callGemini(params,callback){
+// Shared generationConfig for Gemini 3.5 Flash-Lite. jsonMode sets responseMimeType,
+// which the API rejects when google_search is attached, so search calls leave it off.
+// A single user turn only: a request whose last turn is a model turn returns HTTP 400.
+// This app does not send functionCall parts; a functionResponse must carry the matching id.
+function geminiGenerationConfig(maxTokens,jsonMode){
+  var generationConfig={maxOutputTokens:maxTokens,thinkingConfig:{thinkingLevel:GEMINI_THINKING_LEVEL}};
+  if(jsonMode)generationConfig.responseMimeType='application/json';
+  return generationConfig;
+}
+
+function openRouterReasoning(){
+  // Reasoning is mandatory on this slug (effort "none" is rejected). "minimal" maps
+  // to thinkingLevel MINIMAL. exclude keeps the trace out of message.content.
+  return {effort:'minimal',exclude:true};
+}
+
+function buildGeminiGenerateBody(params){
   var parts=[{text:params.text||''}];
   (params.images||[]).forEach(function(b64){parts.push({inline_data:{mime_type:'image/jpeg',data:b64}});});
-  // thinkingBudget:0 disables Gemini 2.5 Flash's default thinking mode, which otherwise prepends an
-  // internal-reasoning part (thought:true) ahead of the actual answer and breaks JSON parsing.
-  var generationConfig={maxOutputTokens:params.maxTokens||1500,thinkingConfig:{thinkingBudget:0}};
-  // response_mime_type forces strict JSON output, which is the biggest lever against "could not parse
-  // listing" errors — but the Gemini API rejects it when the google_search tool is attached, so it can
-  // only be forced on the tool-free (vision) call. The search call still asks for JSON via the prompt
-  // and leans on extractJSON's tolerant parsing instead.
-  if(!params.useSearch)generationConfig.response_mime_type='application/json';
-  var body={system_instruction:{parts:[{text:params.system||''}]},contents:[{role:'user',parts:parts}],generationConfig:generationConfig};
+  var body={system_instruction:{parts:[{text:params.system||''}]},contents:[{role:'user',parts:parts}],generationConfig:geminiGenerationConfig(params.maxTokens||1500,!params.useSearch)};
   if(params.useSearch)body.tools=[{google_search:{}}];
-  httpsPostJSON('generativelanguage.googleapis.com','/v1beta/models/gemini-2.5-flash:generateContent?key='+encodeURIComponent(GEMINI_API_KEY),{},body,function(err,status,data){
+  return body;
+}
+
+function buildOpenRouterChatBody(params){
+  var content=[{type:'text',text:params.text||''}];
+  (params.images||[]).forEach(function(b64){content.push({type:'image_url',image_url:{url:'data:image/jpeg;base64,'+b64}});});
+  return {model:OPENROUTER_MODEL_ID+(params.useSearch?':online':''),max_tokens:params.maxTokens||1500,messages:[{role:'system',content:params.system||''},{role:'user',content:content}],response_format:{type:'json_object'},reasoning:openRouterReasoning()};
+}
+
+function buildGeminiTranscribeBody(audioB64,mimeType,sysPrompt){
+  var parts=[{text:'Transcribe this audio recording.'},{inline_data:{mime_type:mimeType||'audio/webm',data:audioB64}}];
+  return {system_instruction:{parts:[{text:sysPrompt}]},contents:[{role:'user',parts:parts}],generationConfig:geminiGenerationConfig(800,false)};
+}
+
+function buildOpenRouterTranscribeBody(audioB64,mimeType,sysPrompt){
+  var content=[{type:'text',text:'Transcribe this audio recording.'},{type:'input_audio',input_audio:{data:audioB64,format:(mimeType&&mimeType.indexOf('wav')>=0)?'wav':'webm'}}];
+  return {model:OPENROUTER_MODEL_ID,max_tokens:800,messages:[{role:'system',content:sysPrompt},{role:'user',content:content}],reasoning:openRouterReasoning()};
+}
+
+function geminiGeneratePath(){
+  return '/v1beta/models/'+GEMINI_MODEL_ID+':generateContent?key='+encodeURIComponent(GEMINI_API_KEY);
+}
+
+// Drop thought:true parts so extractJSON and transcripts see the answer, not the trace.
+function geminiCandidateText(data){
+  var j=JSON.parse(data);
+  var cand=(j.candidates&&j.candidates[0])||null;
+  var parts=(cand&&cand.content&&cand.content.parts)||[];
+  return parts.filter(function(p){return p.text&&!p.thought;}).map(function(p){return p.text;}).join('');
+}
+
+function callGemini(params,callback){
+  var body=buildGeminiGenerateBody(params);
+  httpsPostJSON('generativelanguage.googleapis.com',geminiGeneratePath(),{},body,function(err,status,data){
     if(err){callback(err);return;}
     console.log('[GEMINI] Status:',status);
     if(status!==200)console.log('[GEMINI] Error:',data.slice(0,300));
     try{
-      var j=JSON.parse(data);
-      var respParts=(j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts)||[];
-      // Even with thinking disabled, filter out any thought:true parts defensively so extractJSON
-      // never sees the model's internal reasoning monologue instead of the final JSON answer.
-      var answerText=respParts.filter(function(p){return !p.thought;}).map(function(p){return p.text||'';}).join('');
+      var answerText=geminiCandidateText(data);
       if(!answerText){callback(new Error('Empty Gemini response'));return;}
       callback(null,answerText);
     }catch(e){callback(e);}
@@ -697,10 +744,7 @@ function callGemini(params,callback){
 }
 
 function callOpenRouter(params,callback){
-  var content=[{type:'text',text:params.text||''}];
-  (params.images||[]).forEach(function(b64){content.push({type:'image_url',image_url:{url:'data:image/jpeg;base64,'+b64}});});
-  var model='google/gemini-2.5-flash'+(params.useSearch?':online':'');
-  var body={model:model,max_tokens:params.maxTokens||1500,messages:[{role:'system',content:params.system||''},{role:'user',content:content}],response_format:{type:'json_object'}};
+  var body=buildOpenRouterChatBody(params);
   httpsPostJSON('openrouter.ai','/api/v1/chat/completions',{'Authorization':'Bearer '+OPENROUTER_API_KEY},body,function(err,status,data){
     if(err){callback(err);return;}
     console.log('[OPENROUTER] Status:',status);
@@ -756,21 +800,18 @@ function readRawBody(req,cb){
   req.on('error',function(e){if(!failed)cb(e);});
 }
 
-// Transcribes an audio recording via Gemini 2.5 Flash (direct API, falling back to OpenRouter).
+// Transcribes an audio recording via Gemini 3.5 Flash-Lite (direct API, falling back to OpenRouter).
 // Claude is not used here — it has no audio input support. Returns callback(err, transcriptText).
 function transcribeAudio(audioB64,mimeType,callback){
   var sysPrompt='You are an expert audio transcriber for an electronics and merchandise reselling warehouse. Accurately transcribe the spoken audio verbatim. Pay special attention to quiet speech, alphanumeric model numbers, accessories, testing notes, and cosmetic flaw descriptions. Output ONLY the clean transcribed text without markdown formatting or commentary.';
   if(GEMINI_API_KEY){
-    var parts=[{text:'Transcribe this audio recording.'},{inline_data:{mime_type:mimeType||'audio/webm',data:audioB64}}];
-    var body={system_instruction:{parts:[{text:sysPrompt}]},contents:[{role:'user',parts:parts}],generationConfig:{maxOutputTokens:800}};
-    httpsPostJSON('generativelanguage.googleapis.com','/v1beta/models/gemini-2.5-flash:generateContent?key='+encodeURIComponent(GEMINI_API_KEY),{},body,function(err,status,data){
+    var body=buildGeminiTranscribeBody(audioB64,mimeType,sysPrompt);
+    httpsPostJSON('generativelanguage.googleapis.com',geminiGeneratePath(),{},body,function(err,status,data){
       if(err){callback(err);return;}
       console.log('[VOICE][GEMINI] Status:',status);
       if(status!==200)console.log('[VOICE][GEMINI] Error:',data.slice(0,300));
       try{
-        var j=JSON.parse(data);
-        var cand=(j.candidates&&j.candidates[0])||null;
-        var txt=(cand&&cand.content&&cand.content.parts)?cand.content.parts.filter(function(p){return p.text;}).map(function(p){return p.text;}).join(''):'';
+        var txt=geminiCandidateText(data);
         if(!txt){callback(new Error('Empty transcript'));return;}
         callback(null,txt);
       }catch(e){callback(e);}
@@ -778,8 +819,7 @@ function transcribeAudio(audioB64,mimeType,callback){
     return;
   }
   if(OPENROUTER_API_KEY){
-    var content=[{type:'text',text:'Transcribe this audio recording.'},{type:'input_audio',input_audio:{data:audioB64,format:(mimeType&&mimeType.indexOf('wav')>=0)?'wav':'webm'}}];
-    var obody={model:'google/gemini-2.5-flash',max_tokens:800,messages:[{role:'system',content:sysPrompt},{role:'user',content:content}]};
+    var obody=buildOpenRouterTranscribeBody(audioB64,mimeType,sysPrompt);
     httpsPostJSON('openrouter.ai','/api/v1/chat/completions',{'Authorization':'Bearer '+OPENROUTER_API_KEY},obody,function(err,status,data){
       if(err){callback(err);return;}
       console.log('[VOICE][OPENROUTER] Status:',status);
@@ -1065,7 +1105,7 @@ const server=http.createServer(function(req,res){
   }
 
   // Voice capture: accepts a raw audio blob (audio/webm etc, not JSON) from the phone's MediaRecorder,
-  // transcribes it via Gemini 2.5 Flash, and returns the transcript so the client can drop it into notes.
+  // transcribes it via Gemini 3.5 Flash-Lite, and returns the transcript so the client can drop it into notes.
   // Always resolves — never crashes — so the client can gracefully fall back to manual typing on failure.
   if(req.method==='POST'&&req.url==='/api/voice/transcribe'){
     readRawBody(req,function(err,buf){
@@ -1193,4 +1233,16 @@ const server=http.createServer(function(req,res){
   res.writeHead(404);res.end('Not found');
 });
 
-server.listen(PORT,function(){console.log('Quick Lister running on port '+PORT);});
+if(require.main===module){
+  server.listen(PORT,function(){console.log('Quick Lister running on port '+PORT);});
+}
+
+module.exports={
+  GEMINI_MODEL_ID:GEMINI_MODEL_ID,
+  OPENROUTER_MODEL_ID:OPENROUTER_MODEL_ID,
+  GEMINI_THINKING_LEVEL:GEMINI_THINKING_LEVEL,
+  buildGeminiGenerateBody:buildGeminiGenerateBody,
+  buildOpenRouterChatBody:buildOpenRouterChatBody,
+  buildGeminiTranscribeBody:buildGeminiTranscribeBody,
+  buildOpenRouterTranscribeBody:buildOpenRouterTranscribeBody
+};
